@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 800" role="img" aria-label="Ventanería en aluminio para hotel">
+  <defs>
+    <linearGradient id="cielo" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0b172a"/>
+      <stop offset="100%" stop-color="#123354"/>
+    </linearGradient>
+    <linearGradient id="vidrio" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#7dd3fc" stop-opacity="0.55"/>
+      <stop offset="45%" stop-color="#38bdf8" stop-opacity="0.22"/>
+      <stop offset="100%" stop-color="#0ea5e9" stop-opacity="0.05"/>
+    </linearGradient>
+    <linearGradient id="brillo" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="aluminio" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#e2e8f0"/>
+      <stop offset="50%" stop-color="#94a3b8"/>
+      <stop offset="100%" stop-color="#475569"/>
+    </linearGradient>
+    <pattern id="cuadricula" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#94a3b8" stroke-opacity="0.12" stroke-width="1"/>
+    </pattern>
+  </defs>
+
+  <rect width="1200" height="800" fill="url(#cielo)"/>
+  <rect width="1200" height="800" fill="url(#cuadricula)"/>
+
+  <rect x="90" y="80" width="1020" height="600" rx="10" fill="#0f2438" stroke="#1e3a52" stroke-width="4"/>
+  <rect x="130" y="120" width="940" height="520" fill="url(#vidrio)" stroke="url(#aluminio)" stroke-width="18"/>
+
+  <line x1="600" y1="120" x2="600" y2="640" stroke="url(#aluminio)" stroke-width="16"/>
+  <line x1="130" y1="380" x2="1070" y2="380" stroke="url(#aluminio)" stroke-width="6" opacity="0.75"/>
+
+  <path d="M 160 150 L 420 150 L 160 430 Z" fill="url(#brillo)" opacity="0.65"/>
+  <path d="M 650 400 L 1010 400 L 650 620 Z" fill="url(#brillo)" opacity="0.35"/>
+
+  <rect x="130" y="640" width="940" height="24" fill="url(#aluminio)"/>
+  <rect x="130" y="100" width="940" height="20" fill="url(#aluminio)"/>
+
+  <rect x="520" y="595" width="160" height="18" rx="9" fill="#38bdf8" opacity="0.8"/>
+  <circle cx="545" cy="604" r="5" fill="#e0f2fe"/>
+  <circle cx="655" cy="604" r="5" fill="#e0f2fe"/>
+
+  <g font-family="ui-sans-serif, system-ui, sans-serif">
+    <text x="130" y="56" fill="#7dd3fc" font-size="20" font-weight="700" letter-spacing="5">YIKEV STRATOS · PORTAFOLIO</text>
+    <text x="1070" y="56" fill="#94a3b8" font-size="16" text-anchor="end" letter-spacing="3">VENTANERÍA A MEDIDA</text>
+    <text x="130" y="744" fill="#e2e8f0" font-size="30" font-weight="800">Hotel Camino Real</text>
+    <text x="130" y="776" fill="#7dd3fc" font-size="17" letter-spacing="2">ALUMINIO LÍNEA 5020 · VIDRIO CLARO 4 MM</text>
+  </g>
+</svg>

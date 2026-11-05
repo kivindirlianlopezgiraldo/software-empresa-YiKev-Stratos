@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+# La landing pública es indexable. El ERP está detrás del inicio de sesión.
