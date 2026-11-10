@@ -4,7 +4,11 @@
 // Abre una ventana nueva lista para imprimir o guardar como PDF.
 
 import { formatCOP, formatFechaHora } from './format';
-import { etiquetaFormula } from './despiece';
+import {
+  describirVidrioSolicitado,
+  etiquetaFormula,
+  vidrioCoincideConReceta,
+} from './despiece';
 
 function escapar(valor) {
   return String(valor ?? '').replace(/[&<>"']/g, (caracter) => {
@@ -68,6 +72,12 @@ function detalleVidrios(items = []) {
   const filas = [];
   items.forEach((item) => {
     (item.vidrios || []).forEach((vidrio) => {
+      const solicitado =
+        vidrio.solicitado || describirVidrioSolicitado(item);
+      const difiere =
+        typeof vidrio.difiereReceta === 'boolean'
+          ? vidrio.difiereReceta
+          : !vidrioCoincideConReceta(vidrio.nombre, item);
       filas.push({
         proyecto: item.descripcion || 'Proyecto',
         nombre: vidrio.nombre || 'Vidrio',
@@ -76,6 +86,8 @@ function detalleVidrios(items = []) {
         altoCm: Number(vidrio.altoMm) / 10,
         cantidad: Number(vidrio.cantidad || 0),
         areaM2: Number(vidrio.areaM2 || 0),
+        solicitado,
+        difiere: difiere && Boolean(solicitado),
       });
     });
   });
@@ -215,6 +227,7 @@ export function imprimirOrdenProduccion({ empresa, orden, items = [], despiece, 
     .join('');
 
   const vidriosDetalle = detalleVidrios(despiece?.items || []);
+  const vidriosConDiferencia = vidriosDetalle.filter((vidrio) => vidrio.difiere);
   const vidrios = vidriosDetalle
     .map(
       (vidrio) => `
@@ -222,6 +235,10 @@ export function imprimirOrdenProduccion({ empresa, orden, items = [], despiece, 
           <td>${escapar(vidrio.proyecto)}</td>
           <td><strong>${escapar(vidrio.nombre)}</strong>${
             vidrio.codigo ? `<br /><span class="nota mono">${escapar(vidrio.codigo)}</span>` : ''
+          }${
+            vidrio.difiere
+              ? `<br /><span class="alerta">La orden pide: ${escapar(vidrio.solicitado)}</span>`
+              : ''
           }</td>
           <td class="centro mono fuerte">${cm(vidrio.anchoCm)}</td>
           <td class="centro mono fuerte">${cm(vidrio.altoCm)}</td>
@@ -283,6 +300,7 @@ export function imprimirOrdenProduccion({ empresa, orden, items = [], despiece, 
     .mono { font-family: "Courier New", monospace; font-size: 8.2pt; }
     .fuerte { font-weight: 700; }
     .nota { color: #6b7280; font-size: 7.6pt; }
+    .alerta { color: #b91c1c; font-size: 7.8pt; font-weight: 700; }
     .resumen { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin: 8px 0 12px; }
     .tarjeta { border: 1px solid #d1d5db; border-radius: 6px; padding: 6px 8px; }
     .tarjeta span { display: block; font-size: 7pt; text-transform: uppercase; color: #6b7280; }
@@ -423,6 +441,18 @@ export function imprimirOrdenProduccion({ empresa, orden, items = [], despiece, 
     </table>
 
     <h2>Vidrios · medidas de corte</h2>
+    ${
+      vidriosConDiferencia.length
+        ? `<div class="aviso"><strong>Revisar vidrio antes de cortar:</strong> la receta del sistema y el vidrio pedido en la orden no coinciden. Confirma con el cliente o el jefe de taller cuál se instala: ${vidriosConDiferencia
+            .map(
+              (vidrio) =>
+                `${escapar(vidrio.proyecto)} → ${escapar(vidrio.nombre)} (receta) vs ${escapar(
+                  vidrio.solicitado,
+                )} (orden)`,
+            )
+            .join('; ')}.</div>`
+        : ''
+    }
     <table>
       <thead>
         <tr>

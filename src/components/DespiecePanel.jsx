@@ -11,11 +11,13 @@ import {
 import { formatCOP } from '../lib/format';
 import {
   describirFormula,
+  describirVidrioSolicitado,
   formatearArea,
   formatearCm,
   formatearMetros,
   formatearMm,
   normalizarDespiece,
+  vidrioCoincideConReceta,
 } from '../lib/despiece';
 
 function Resumen({ totales }) {
@@ -110,7 +112,7 @@ function TablaCortes({ cortes }) {
   );
 }
 
-function TablaVidrios({ vidrios }) {
+function TablaVidrios({ vidrios, item }) {
   if (!vidrios.length) return null;
 
   return (
@@ -130,17 +132,32 @@ function TablaVidrios({ vidrios }) {
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-800/60">
-            {vidrios.map((v, indice) => (
-              <tr key={`${v.materialId}-${indice}`} className="text-slate-300">
-                <td className="px-3 py-2 font-semibold text-white">{v.nombre}</td>
-                <td className="px-3 py-2 text-right font-mono">{formatearMm(v.anchoMm)}</td>
-                <td className="px-3 py-2 text-right font-mono">{formatearMm(v.altoMm)}</td>
-                <td className="px-3 py-2 text-right font-mono">{v.cantidad}</td>
-                <td className="px-3 py-2 text-right font-mono text-sky-400 font-bold">
-                  {formatearArea(v.areaM2)}
-                </td>
-              </tr>
-            ))}
+            {vidrios.map((v, indice) => {
+              const solicitado = v.solicitado || describirVidrioSolicitado(item);
+              const difiere =
+                typeof v.difiereReceta === 'boolean'
+                  ? v.difiereReceta
+                  : !vidrioCoincideConReceta(v.nombre, item);
+
+              return (
+                <tr key={`${v.materialId}-${indice}`} className="text-slate-300">
+                  <td className="px-3 py-2 font-semibold text-white">
+                    {v.nombre}
+                    {difiere && solicitado ? (
+                      <span className="mt-0.5 block text-[10px] font-semibold text-amber-400">
+                        La orden pide: {solicitado}
+                      </span>
+                    ) : null}
+                  </td>
+                  <td className="px-3 py-2 text-right font-mono">{formatearMm(v.anchoMm)}</td>
+                  <td className="px-3 py-2 text-right font-mono">{formatearMm(v.altoMm)}</td>
+                  <td className="px-3 py-2 text-right font-mono">{v.cantidad}</td>
+                  <td className="px-3 py-2 text-right font-mono text-sky-400 font-bold">
+                    {formatearArea(v.areaM2)}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -367,7 +384,7 @@ export default function DespiecePanel({
             </div>
 
             <TablaCortes cortes={item.cortes || []} />
-            <TablaVidrios vidrios={item.vidrios || []} />
+            <TablaVidrios vidrios={item.vidrios || []} item={item} />
             <TablaAccesorios accesorios={item.accesorios || []} />
           </div>
         ))}

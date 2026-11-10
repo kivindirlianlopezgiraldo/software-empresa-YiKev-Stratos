@@ -45,6 +45,46 @@ const esCategoriaPerfil = (categoria = '') =>
 
 const esUnidadBarra = (unidad = '') => /barra/i.test(String(unidad));
 
+// Colores/acabados que sí distinguen un vidrio de otro en el taller.
+// "Claro", "templado" y "laminado" se tratan como base y no como color.
+const ACABADOS_VIDRIO = ['bronce', 'gris', 'esmerilado', 'espejo', 'acrilico'];
+
+/**
+ * Texto con el vidrio que pide el proyecto: "Vidrio bronce · 4 mm".
+ * Acepta tanto los nombres de la orden (vidrio_tipo) como los del despiece
+ * (vidrioTipo).
+ */
+export function describirVidrioSolicitado(item = {}) {
+  const tipo = String(item?.vidrioTipo ?? item?.vidrio_tipo ?? '').trim();
+  const espesor = String(item?.vidrioEspesor ?? item?.vidrio_espesor ?? '').trim();
+  return [tipo, espesor].filter(Boolean).join(' · ');
+}
+
+/**
+ * Compara el vidrio de la receta con el que pide el proyecto.
+ * Devuelve false cuando el espesor o el color no coinciden, para que la
+ * orden de producción avise antes de cortar el vidrio equivocado.
+ */
+export function vidrioCoincideConReceta(nombreReceta, item = {}) {
+  const tipo = String(item?.vidrioTipo ?? item?.vidrio_tipo ?? '');
+  const espesor = String(item?.vidrioEspesor ?? item?.vidrio_espesor ?? '');
+
+  if (!tipo && !espesor) return true;
+  if (/sin\s+vidrio/i.test(tipo)) return true;
+
+  const receta = normalizarTexto(nombreReceta).replace(/\s+/g, '');
+  if (!receta) return true;
+
+  const espesorPedido = normalizarTexto(espesor).replace(/\s+/g, '');
+  if (espesorPedido && !receta.includes(espesorPedido)) return false;
+
+  const tipoNormalizado = normalizarTexto(tipo);
+  const acabadoPedido = ACABADOS_VIDRIO.find((acabado) => tipoNormalizado.includes(acabado));
+  if (acabadoPedido && !receta.includes(acabadoPedido)) return false;
+
+  return true;
+}
+
 export function etiquetaFormula(valor) {
   return FORMULAS_CORTE.find((f) => f.valor === valor)?.etiqueta || 'Cantidad fija';
 }
@@ -586,6 +626,8 @@ export function generarDespiece(items = [], sistemas = [], opciones = {}) {
           areaM2: redondear(areaM2, 2),
           merma,
           costo: redondear(costo, 0),
+          solicitado: describirVidrioSolicitado(item),
+          difiereReceta: !vidrioCoincideConReceta(material.nombre, item),
         };
 
         vidrios.push(registro);
