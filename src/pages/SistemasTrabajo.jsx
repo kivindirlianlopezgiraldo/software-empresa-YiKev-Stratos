@@ -288,7 +288,11 @@ export default function SistemasTrabajo({ permisos }) {
             .update(datos)
             .eq('id', sistemaEditando.id);
         }
-        return supabase.from('sistemas_trabajo').insert([{ id: nuevoId(), ...datos }]);
+        return supabase
+          .from('sistemas_trabajo')
+          .insert([{ id: nuevoId(), ...datos }])
+          .select()
+          .single();
       };
 
       let respuesta = await guardar(payload);
@@ -297,16 +301,23 @@ export default function SistemasTrabajo({ permisos }) {
       }
       if (respuesta.error) throw respuesta.error;
 
+      const sistemaCreado = sistemaEditando ? null : respuesta.data;
+
       mostrar(
         sistemaEditando ? '¡Actualizado!' : '¡Sistema Creado!',
         sistemaEditando
           ? 'El sistema fue modificado correctamente.'
-          : 'El sistema de trabajo fue registrado.',
+          : 'Ahora agrega los perfiles, vidrios y accesorios que lleva este sistema.',
         'exito',
       );
 
       setModalSistema(false);
       refrescar();
+
+      // Al crear un sistema se abre el panel para cargar sus ítems de inmediato.
+      if (sistemaCreado) {
+        await abrirDescuentos(sistemaCreado);
+      }
     } catch (err) {
       setErrorForm(err.message || 'Error al guardar el sistema.');
     } finally {
@@ -949,6 +960,12 @@ export default function SistemasTrabajo({ permisos }) {
             />
           </div>
 
+          <p className="rounded-xl border border-emerald-500/20 bg-emerald-950/30 px-3 py-2 text-[10px] leading-relaxed text-emerald-200">
+            Al guardar un sistema nuevo se abre el panel <strong>Descuentos</strong> para que
+            agregues los <strong>perfiles, vidrios, accesorios y empaques</strong> que lleva y
+            definas cuánto se les descuenta al cortar.
+          </p>
+
           <div className="flex justify-end gap-3 pt-4 border-t border-slate-800">
             <button
               type="button"
@@ -962,7 +979,11 @@ export default function SistemasTrabajo({ permisos }) {
               disabled={guardando}
               className="px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold shadow-lg shadow-blue-600/20 disabled:opacity-50 transition-colors"
             >
-              {guardando ? 'Guardando...' : 'Guardar Sistema'}
+              {guardando
+                ? 'Guardando...'
+                : sistemaEditando
+                  ? 'Guardar Sistema'
+                  : 'Guardar y agregar ítems'}
             </button>
           </div>
         </form>
