@@ -105,6 +105,9 @@ cliente. Cada ítem guarda sistema, medidas, cantidad, tipo de vidrio, espesor y
   ajustar piezas, restar centímetros, divisores, ángulos, referencias, descuento en mm y merma.
   El panel calcula un **despiece de muestra** con las medidas que escribas, para ver de
   inmediato cuánto material se necesita antes de guardar.
+- Al crear un **Nuevo Sistema**, el botón de guardado dice **“Guardar y agregar ítems”** y,
+  al terminar, se abre automáticamente el panel **Descuentos** para cargar de una vez los
+  perfiles, vidrios, accesorios y empaques que lleva el sistema.
 - El despiece incluye cortes de perfiles (con descuentos, ángulo y merma), medidas exactas
   de vidrio, accesorios, cantidades, retales aprovechados, barras nuevas y costo estimado
   de compra.
