@@ -3,6 +3,7 @@ import {
   AlertCircle,
   Edit2,
   Layers,
+  Lock,
   Package,
   Plus,
   RefreshCw,
@@ -211,6 +212,7 @@ export default function SistemasTrabajo({ permisos }) {
   }, [mostrar]);
 
   const abrirNuevo = () => {
+    if (!puedeEditar) return;
     setSistemaEditando(null);
     setForm(FORM_SISTEMA_VACIO);
     setErrorForm('');
@@ -218,6 +220,7 @@ export default function SistemasTrabajo({ permisos }) {
   };
 
   const abrirEditar = (sistema) => {
+    if (!puedeEditar) return;
     setSistemaEditando(sistema);
     setForm({
       nombre: sistema.nombre || '',
@@ -237,6 +240,12 @@ export default function SistemasTrabajo({ permisos }) {
 
   const handleGuardarSistema = async (evento) => {
     evento.preventDefault();
+    if (!puedeEditar) {
+      setErrorForm(
+        'Solo el Super Admin y el Jefe de Taller pueden modificar sistemas, fórmulas y descuentos.',
+      );
+      return;
+    }
     setGuardando(true);
     setErrorForm('');
 
@@ -297,6 +306,13 @@ export default function SistemasTrabajo({ permisos }) {
   };
 
   const eliminarSistema = async (sistema) => {
+    if (!puedeEditar) {
+      mostrar(
+        'Sin permiso',
+        'Solo el Super Admin y el Jefe de Taller pueden eliminar sistemas.',
+      );
+      return;
+    }
     const confirmado = window.confirm(
       `¿Eliminar el sistema "${sistema.nombre}" y sus materiales asociados?`,
     );
@@ -363,6 +379,7 @@ export default function SistemasTrabajo({ permisos }) {
   };
 
   const editarLinea = (item) => {
+    if (!puedeEditar) return;
     const config = configuracionFormula(item);
     setLineaEditando(item.id);
     setMaterialSeleccionado(item.material || null);
@@ -383,6 +400,14 @@ export default function SistemasTrabajo({ permisos }) {
 
   const agregarMaterial = async (evento) => {
     evento.preventDefault();
+
+    if (!puedeEditar) {
+      mostrar(
+        'Sin permiso',
+        'Solo el Super Admin y el Jefe de Taller pueden modificar recetas, fórmulas y descuentos.',
+      );
+      return;
+    }
 
     if (!materialSeleccionado) {
       mostrar('Selección requerida', 'Elige un material del autocompletado.');
@@ -469,6 +494,13 @@ export default function SistemasTrabajo({ permisos }) {
   };
 
   const eliminarMaterialDeSistema = async (relacionId) => {
+    if (!puedeEditar) {
+      mostrar(
+        'Sin permiso',
+        'Solo el Super Admin y el Jefe de Taller pueden quitar piezas de la receta.',
+      );
+      return;
+    }
     try {
       const { error: errorDelete } = await supabase
         .from('sistema_materiales')
@@ -549,6 +581,17 @@ export default function SistemasTrabajo({ permisos }) {
           </button>
         )}
       </div>
+
+      {!puedeEditar && (
+        <div className="flex items-start gap-2.5 rounded-2xl border border-amber-500/30 bg-amber-950/40 px-4 py-3 text-[11px] leading-relaxed text-amber-200">
+          <Lock size={15} className="mt-0.5 shrink-0" />
+          <p>
+            Solo el <strong>Super Admin</strong> y el <strong>Jefe de Taller</strong> pueden crear
+            o modificar sistemas, recetas, fórmulas y descuentos de fabricación. Puedes consultar
+            las medidas y recetas, pero no editarlas.
+          </p>
+        </div>
+      )}
 
       <div className="bg-slate-900 p-4 rounded-2xl border border-slate-800 shadow-lg">
         <div className="relative">

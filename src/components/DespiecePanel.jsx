@@ -116,7 +116,7 @@ function TablaVidrios({ vidrios }) {
   return (
     <div className="space-y-1.5">
       <p className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider font-bold text-sky-400">
-        <Ruler size={12} /> Medidas de vidrio (con descuento del sistema)
+        <Ruler size={12} /> Medidas de corte de vidrio · ancho × alto
       </p>
       <div className="overflow-x-auto rounded-xl border border-slate-800">
         <table className="w-full text-left text-[11px]">

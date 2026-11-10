@@ -60,6 +60,29 @@ function resumenPorMaterial(items = [], campo) {
 }
 
 /**
+ * Detalle de vidrios con la medida exacta de corte (ancho × alto en cm).
+ * No se consolida por material para no perder tamaños distintos del mismo
+ * vidrio: cada fila es una medida que el taller debe cortar.
+ */
+function detalleVidrios(items = []) {
+  const filas = [];
+  items.forEach((item) => {
+    (item.vidrios || []).forEach((vidrio) => {
+      filas.push({
+        proyecto: item.descripcion || 'Proyecto',
+        nombre: vidrio.nombre || 'Vidrio',
+        codigo: vidrio.codigo || '',
+        anchoCm: Number(vidrio.anchoMm) / 10,
+        altoCm: Number(vidrio.altoMm) / 10,
+        cantidad: Number(vidrio.cantidad || 0),
+        areaM2: Number(vidrio.areaM2 || 0),
+      });
+    });
+  });
+  return filas;
+}
+
+/**
  * Abre la orden de producción en una ventana nueva.
  *
  * @param {Object} opciones
@@ -191,15 +214,19 @@ export function imprimirOrdenProduccion({ empresa, orden, items = [], despiece, 
     )
     .join('');
 
-  const vidrios = resumenPorMaterial(despiece?.items || [], 'vidrios')
+  const vidriosDetalle = detalleVidrios(despiece?.items || []);
+  const vidrios = vidriosDetalle
     .map(
-      (linea) => `
+      (vidrio) => `
         <tr>
-          <td><strong>${escapar(linea.nombre)}</strong>${
-            linea.codigo ? `<br /><span class="nota mono">${escapar(linea.codigo)}</span>` : ''
+          <td>${escapar(vidrio.proyecto)}</td>
+          <td><strong>${escapar(vidrio.nombre)}</strong>${
+            vidrio.codigo ? `<br /><span class="nota mono">${escapar(vidrio.codigo)}</span>` : ''
           }</td>
-          <td class="centro mono">${Number(linea.cantidad || 0)}</td>
-          <td class="centro mono">${Number(linea.areaM2 || 0).toFixed(2)} m²</td>
+          <td class="centro mono fuerte">${cm(vidrio.anchoCm)}</td>
+          <td class="centro mono fuerte">${cm(vidrio.altoCm)}</td>
+          <td class="centro mono">${Number(vidrio.cantidad || 0)}</td>
+          <td class="centro mono">${Number(vidrio.areaM2 || 0).toFixed(2)} m²</td>
         </tr>`,
     )
     .join('');
@@ -349,7 +376,14 @@ export function imprimirOrdenProduccion({ empresa, orden, items = [], despiece, 
         </tr>
       </thead>
       <tbody>
-        ${cortes.join('') || '<tr><td colspan="8" class="centro">Sin cortes calculados</td></tr>'}
+        ${
+          cortes.join('') ||
+          `<tr><td colspan="8" class="centro">${
+            vidriosDetalle.length
+              ? 'Este sistema no lleva perfiles de aluminio. Las medidas de corte del vidrio están en la sección “Vidrios”.'
+              : 'Sin cortes calculados'
+          }</td></tr>`
+        }
       </tbody>
     </table>
 
@@ -388,30 +422,32 @@ export function imprimirOrdenProduccion({ empresa, orden, items = [], despiece, 
       </tbody>
     </table>
 
-    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
-      <div>
-        <h2>Accesorios y consumibles</h2>
-        <table>
-          <thead>
-            <tr><th>Material</th><th class="centro" style="width: 56px">Cant.</th><th style="width: 70px">Unidad</th></tr>
-          </thead>
-          <tbody>
-            ${accesorios || '<tr><td colspan="3" class="centro">Sin accesorios</td></tr>'}
-          </tbody>
-        </table>
-      </div>
-      <div>
-        <h2>Vidrios</h2>
-        <table>
-          <thead>
-            <tr><th>Vidrio</th><th class="centro" style="width: 48px">Piezas</th><th class="centro" style="width: 62px">Área</th></tr>
-          </thead>
-          <tbody>
-            ${vidrios || '<tr><td colspan="3" class="centro">Sin vidrios</td></tr>'}
-          </tbody>
-        </table>
-      </div>
-    </div>
+    <h2>Vidrios · medidas de corte</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Proyecto</th>
+          <th>Vidrio</th>
+          <th class="centro" style="width: 64px">Ancho</th>
+          <th class="centro" style="width: 64px">Alto</th>
+          <th class="centro" style="width: 48px">Piezas</th>
+          <th class="centro" style="width: 70px">Área</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${vidrios || '<tr><td colspan="6" class="centro">Sin vidrios</td></tr>'}
+      </tbody>
+    </table>
+
+    <h2>Accesorios y consumibles</h2>
+    <table>
+      <thead>
+        <tr><th>Material</th><th class="centro" style="width: 56px">Cant.</th><th style="width: 90px">Unidad</th></tr>
+      </thead>
+      <tbody>
+        ${accesorios || '<tr><td colspan="3" class="centro">Sin accesorios</td></tr>'}
+      </tbody>
+    </table>
 
     ${
       despiece?.advertencias?.length
