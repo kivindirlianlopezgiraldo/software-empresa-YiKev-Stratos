@@ -1,6 +1,8 @@
 # Configuración de despliegue en Netlify.
-# Las variables VITE_SUPABASE_URL y VITE_SUPABASE_ANON_KEY se definen en
-# Site configuration -> Environment variables (nunca en este archivo).
+# La clave sb_publishable_* de Supabase es pública por diseño: viaja en el
+# bundle del navegador y el acceso a datos lo controla RLS en Supabase.
+# Si prefieres gestionarla desde el panel, define estas mismas variables en
+# Site configuration -> Environment variables y borra las dos líneas de abajo.
 
 [build]
   command = "npm run build"
@@ -8,6 +10,8 @@
 
 [build.environment]
   NODE_VERSION = "22"
+  VITE_SUPABASE_URL = "https://lctgnurjflnzvlwgdtmi.supabase.co"
+  VITE_SUPABASE_ANON_KEY = "sb_publishable_FSXb_5NpZ9xOhZlUNJKAWg_3IdFBsVK"
 
 # Fallback de SPA: cualquier ruta (login, dashboard, etc.) sirve index.html.
 # Sin esto, recargar una ruta interna devuelve 404.
