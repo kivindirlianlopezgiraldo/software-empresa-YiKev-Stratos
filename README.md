@@ -107,6 +107,15 @@ cliente. Cada ítem guarda sistema, medidas, cantidad, tipo de vidrio, espesor y
   orden de producción**: datos del proyecto, cortes, retales, barras, vidrios, accesorios,
   advertencias y espacio para firmas. Se genera como HTML imprimible en una ventana nueva
   (guardar como PDF desde el diálogo de impresión).
+- La sección **“Vidrios · medidas de corte”** imprime el ancho y el alto exactos de cada
+  vidrio por proyecto (no solo el área), para poder cortar y ensamblar sin ambigüedad.
+- Si el vidrio pedido en la orden (tipo y espesor) no coincide con el de la receta del
+  sistema, la orden muestra un aviso **“Revisar vidrio antes de cortar”** y la medida
+  solicitada. Así se evita instalar un vidrio distinto al que pidió el cliente, incluso en
+  órdenes guardadas antes de este control.
+- Solo el **Super Admin** y el **Jefe de Taller** pueden crear o modificar sistemas, recetas,
+  fórmulas y descuentos. Los demás roles ven un aviso y no tienen acceso al menú; la base de
+  datos también lo restringe con RLS.
 - Producción puede aceptar el trabajo, cambiar su estado, enviar las **medidas de vidrio**
   al jefe de taller y subir una **foto del producto terminado**.
 - El motor de cálculo vive en `src/lib/despiece.js`, la orden imprimible en
