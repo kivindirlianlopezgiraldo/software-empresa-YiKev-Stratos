@@ -88,6 +88,7 @@ export default function SistemasTrabajo({ permisos }) {
 
   const [modalDescuentos, setModalDescuentos] = useState(false);
   const [sistemaDescuentos, setSistemaDescuentos] = useState(null);
+  const [soportaDespieceAvanzado, setSoportaDespieceAvanzado] = useState(true);
 
   const [textoBusquedaMaterial, setTextoBusquedaMaterial] = useState('');
   const [materialSeleccionado, setMaterialSeleccionado] = useState(null);
@@ -191,9 +192,11 @@ export default function SistemasTrabajo({ permisos }) {
           .order('orden', { ascending: true });
 
       let { data, error: errorConsulta } = await consultaCompleta();
+      let usaRespaldo = false;
 
       // Si aún no se aplicó la migración 008, se consulta sin las columnas nuevas.
       if (errorConsulta && /formula_config|angulo_corte/i.test(errorConsulta.message || '')) {
+        usaRespaldo = true;
         const respaldo = await supabase
           .from('sistema_materiales')
           .select(
@@ -208,6 +211,7 @@ export default function SistemasTrabajo({ permisos }) {
       }
 
       if (errorConsulta) throw errorConsulta;
+      setSoportaDespieceAvanzado(!usaRespaldo);
       setMaterialesDelSistema(data ?? []);
     } catch (err) {
       mostrar('No se pudieron cargar los materiales', err.message);
@@ -1358,6 +1362,7 @@ export default function SistemasTrabajo({ permisos }) {
         materiales={materialesDelSistema}
         inventario={inventario}
         puedeEditar={puedeEditar}
+        soportaAvanzado={soportaDespieceAvanzado}
         onClose={() => setModalDescuentos(false)}
         onRecargarMateriales={recargarMaterialesDescuentos}
         onSistemaActualizado={alActualizarSistemaDescuentos}

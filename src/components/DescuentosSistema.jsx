@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Calculator, Lock, Plus, Save, Trash2 } from 'lucide-react';
+import { AlertCircle, Calculator, Lock, Plus, Save, Trash2 } from 'lucide-react';
 
 import { supabase } from '../lib/supabase';
 import { FORMULAS_CORTE, TIPOS_PIEZA } from '../lib/constants';
@@ -82,6 +82,7 @@ export default function DescuentosSistema({
   materiales = [],
   inventario = [],
   puedeEditar = false,
+  soportaAvanzado = true,
   onClose,
   onRecargarMateriales,
   onSistemaActualizado,
@@ -257,16 +258,33 @@ export default function DescuentosSistema({
         supabase.from('sistema_materiales').update(payload).eq('id', linea.id);
 
       let respuesta = await actualizar(datos);
+      let usoRespaldo = false;
       if (respuesta.error && /formula_config|angulo_corte/i.test(respuesta.error.message || '')) {
+        usoRespaldo = true;
         respuesta = await actualizar(sinColumnas(datos, ['formula_config', 'angulo_corte']));
       }
       if (respuesta.error) throw respuesta.error;
 
-      mostrar?.(
-        'Descuento guardado',
-        `${linea.material?.nombre || `Pieza ${indice + 1}`} actualizado.`,
-        'exito',
-      );
+      const usaAvanzado =
+        esPerfil &&
+        (numero(borrador.restarCm, 0) > 0 ||
+          numero(borrador.dividir, 1) > 1 ||
+          numero(borrador.angulo, 0) > 0 ||
+          (borrador.base === 'referencia' && Boolean(String(borrador.referencia || '').trim())));
+
+      if (usoRespaldo && usaAvanzado) {
+        mostrar?.(
+          'Guardado parcial',
+          'Se guardaron cantidad, base, descuento y merma. Para guardar restar cm, dividir, ángulo y referencia aplica la migración 008 en Supabase.',
+          'error',
+        );
+      } else {
+        mostrar?.(
+          'Descuento guardado',
+          `${linea.material?.nombre || `Pieza ${indice + 1}`} actualizado.`,
+          'exito',
+        );
+      }
       await onRecargarMateriales?.();
     } catch (err) {
       mostrar?.('No se pudo guardar', err.message);
@@ -339,16 +357,33 @@ export default function DescuentosSistema({
         ]);
 
       let respuesta = await insertar(datos);
+      let usoRespaldo = false;
       if (respuesta.error && /formula_config|angulo_corte/i.test(respuesta.error.message || '')) {
+        usoRespaldo = true;
         respuesta = await insertar(sinColumnas(datos, ['formula_config', 'angulo_corte']));
       }
       if (respuesta.error) throw respuesta.error;
 
-      mostrar?.(
-        'Pieza agregada',
-        `${materialNuevo.nombre} quedó en la receta con su descuento.`,
-        'exito',
-      );
+      const usaAvanzado =
+        esPerfil &&
+        (numero(nuevo.restarCm, 0) > 0 ||
+          numero(nuevo.dividir, 1) > 1 ||
+          numero(nuevo.angulo, 0) > 0 ||
+          (nuevo.base === 'referencia' && Boolean(String(nuevo.referencia || '').trim())));
+
+      if (usoRespaldo && usaAvanzado) {
+        mostrar?.(
+          'Guardado parcial',
+          'La pieza se agregó con cantidad, base, descuento y merma. Para guardar restar cm, dividir, ángulo y referencia aplica la migración 008 en Supabase.',
+          'error',
+        );
+      } else {
+        mostrar?.(
+          'Pieza agregada',
+          `${materialNuevo.nombre} quedó en la receta con su descuento.`,
+          'exito',
+        );
+      }
       setNuevo(FORM_NUEVO_VACIO);
       await onRecargarMateriales?.();
     } catch (err) {
@@ -392,6 +427,17 @@ export default function DescuentosSistema({
           <p>
             Solo el <strong>Super Admin</strong> y el <strong>Jefe de Taller</strong> pueden
             modificar los descuentos. Puedes consultar el despiece, pero no editarlo.
+          </p>
+        </div>
+      )}
+
+      {!soportaAvanzado && (
+        <div className="flex items-start gap-2 rounded-xl border border-amber-500/30 bg-amber-950/40 px-3 py-2 text-[11px] text-amber-200">
+          <AlertCircle size={14} className="mt-0.5 shrink-0" />
+          <p>
+            <strong>Migración 008 pendiente:</strong> cantidad, base, descuento y merma sí se
+            guardan. Para guardar <strong>restar cm, dividir, ángulo y referencia</strong> hay que
+            ejecutar la migración 008 en Supabase.
           </p>
         </div>
       )}
