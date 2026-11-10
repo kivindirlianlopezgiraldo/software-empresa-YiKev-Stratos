@@ -1,0 +1,37 @@
+# Configuración de despliegue en Netlify.
+# Las variables VITE_SUPABASE_URL y VITE_SUPABASE_ANON_KEY se definen en
+# Site configuration -> Environment variables (nunca en este archivo).
+
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "22"
+
+# Fallback de SPA: cualquier ruta (login, dashboard, etc.) sirve index.html.
+# Sin esto, recargar una ruta interna devuelve 404.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    X-Frame-Options = "SAMEORIGIN"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "camera=(), microphone=(), geolocation=()"
+
+# Los archivos con hash en el nombre pueden cachearse para siempre.
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+# El HTML siempre se revalida para recibir el nuevo bundle al desplegar.
+[[headers]]
+  for = "/index.html"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
