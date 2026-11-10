@@ -3,6 +3,7 @@ import {
   AlertCircle,
   Camera,
   CheckCircle2,
+  Download,
   Edit2,
   ExternalLink,
   Eye,
@@ -33,7 +34,8 @@ import {
   permisosDe,
 } from '../lib/constants';
 import { formatFecha, formatFechaHora, nuevoCodigoOrden, nuevoId } from '../lib/format';
-import { generarDespiece, normalizarDespiece } from '../lib/despiece';
+import { LARGO_BARRA_DEFECTO_CM, generarDespiece, normalizarDespiece } from '../lib/despiece';
+import { imprimirOrdenProduccion } from '../lib/ordenProduccion';
 import { notificarRoles } from '../lib/notificaciones';
 import {
   MAX_IMAGENES,
@@ -137,6 +139,20 @@ function explicarError(err) {
     );
   }
 
+  const columnasDespieceAvanzado = [
+    'largo_barra_cm',
+    'formula_config',
+    'angulo_corte',
+    'retales_produccion',
+  ].some((columna) => texto.includes(columna));
+
+  if (columnasDespieceAvanzado) {
+    return (
+      'Falta aplicar la migración 008 en Supabase (despiece avanzado y retales). ' +
+      'Ejecuta supabase/migrations/008_despiece_avanzado_retales.sql en el SQL Editor.'
+    );
+  }
+
   const columnasProduccion = [
     'origen',
     'despiece',
@@ -164,6 +180,8 @@ export default function OrdenesTrabajo({ perfil, ordenInicialId = null, onOrdenA
   const [items, setItems] = useState([]);
   const [vidrios, setVidrios] = useState([]);
   const [sistemas, setSistemas] = useState([]);
+  const [retales, setRetales] = useState([]);
+  const [empresa, setEmpresa] = useState(null);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState('');
   const [recarga, setRecarga] = useState(0);
@@ -196,10 +214,17 @@ export default function OrdenesTrabajo({ perfil, ordenInicialId = null, onOrdenA
   const ordenInicialAbierta = useRef(null);
 
   const consultarDatos = useCallback(async () => {
-    const [resOrdenes, resSistemas, resMateriales] = await Promise.all([
+    const [resOrdenes, resSistemas, resMateriales, resRetales, resEmpresa] = await Promise.all([
       supabase.from('ordenes_trabajo').select('*').order('creado_en', { ascending: false }),
       supabase.from('sistemas_trabajo').select('*').order('nombre', { ascending: true }),
       supabase.from('sistema_materiales').select('*, material:material_id(*)'),
+      // La tabla de retales llega con la migración 008.
+      supabase
+        .from('retales_produccion')
+        .select('*')
+        .eq('disponible', true)
+        .order('largo_cm', { ascending: false }),
+      supabase.from('empresa_config').select('*').eq('id', 1).maybeSingle(),
     ]);
 
     if (resOrdenes.error) throw resOrdenes.error;
@@ -222,6 +247,8 @@ export default function OrdenesTrabajo({ perfil, ordenInicialId = null, onOrdenA
       sistemas: filasSistemas,
       items: resItems.error ? [] : resItems.data ?? [],
       vidrios: resVidrios.error ? [] : resVidrios.data ?? [],
+      retales: resRetales.error ? [] : resRetales.data ?? [],
+      empresa: resEmpresa.error ? null : resEmpresa.data ?? null,
     };
   }, []);
 
@@ -236,6 +263,8 @@ export default function OrdenesTrabajo({ perfil, ordenInicialId = null, onOrdenA
         setSistemas(datos.sistemas);
         setItems(datos.items);
         setVidrios(datos.vidrios);
+        setRetales(datos.retales);
+        setEmpresa(datos.empresa);
         setError('');
       } catch (err) {
         if (activo) setError('No se pudieron cargar las órdenes: ' + explicarError(err));
@@ -291,8 +320,12 @@ export default function OrdenesTrabajo({ perfil, ordenInicialId = null, onOrdenA
   }, [vidrios]);
 
   const calcularDespiece = useCallback(
-    (ordenId) => generarDespiece(itemsPorOrden.get(ordenId) || [], sistemas),
-    [itemsPorOrden, sistemas],
+    (ordenId) =>
+      generarDespiece(itemsPorOrden.get(ordenId) || [], sistemas, {
+        retales,
+        largoBarraCm: LARGO_BARRA_DEFECTO_CM,
+      }),
+    [itemsPorOrden, sistemas, retales],
   );
 
   // Firma las URLs de las fotos al abrir la ficha de detalle
@@ -549,7 +582,10 @@ export default function OrdenesTrabajo({ perfil, ordenInicialId = null, onOrdenA
 
       const ordenId = ordenEditando?.id || nuevoId();
       const filas = construirFilas(ordenId);
-      const despiece = generarDespiece(filas, sistemas);
+      const despiece = generarDespiece(filas, sistemas, {
+        retales,
+        largoBarraCm: LARGO_BARRA_DEFECTO_CM,
+      });
       const primerItem = filas[0];
       const vaAProduccion = !ordenEditando && form.destino === 'produccion';
 
@@ -906,7 +942,8 @@ export default function OrdenesTrabajo({ perfil, ordenInicialId = null, onOrdenA
       }));
     }
 
-    const despiece = normalizarDespiece(orden.despiece) || calcularDespiece(orden.id);
+    const guardado = normalizarDespiece(orden.despiece);
+    const despiece = guardado?.items?.length ? guardado : calcularDespiece(orden.id);
     const filas = [];
     (despiece?.items || []).forEach((item) => {
       (item.vidrios || []).forEach((vidrio) => {
@@ -1208,10 +1245,56 @@ export default function OrdenesTrabajo({ perfil, ordenInicialId = null, onOrdenA
     [ordenes],
   );
 
+  const despieceDeOrden = useCallback(
+    (orden) => {
+      const guardado = normalizarDespiece(orden?.despiece);
+      if (guardado?.items?.length) return guardado;
+      return calcularDespiece(orden.id);
+    },
+    [calcularDespiece],
+  );
+
+  const descargarOrdenProduccion = useCallback(
+    (orden) => {
+      const filas = itemsPorOrden.get(orden.id) || [];
+      imprimirOrdenProduccion({
+        empresa,
+        orden,
+        items: filas,
+        despiece: despieceDeOrden(orden),
+        generadoPor: perfil?.nombre_completo,
+      });
+    },
+    [despieceDeOrden, empresa, itemsPorOrden, perfil?.nombre_completo],
+  );
+
+  const tieneDetalleProduccion = useCallback(
+    (orden) => {
+      const filas = itemsPorOrden.get(orden.id) || [];
+      const guardado = normalizarDespiece(orden.despiece);
+      return filas.length > 0 || (guardado?.items?.length || 0) > 0;
+    },
+    [itemsPorOrden],
+  );
+
   const accionesDe = (orden) => {
     const botones = [];
     const esAdminOJefe = permisos.esAdmin || permisos.esJefe;
     const esMia = !orden.instalador_id || orden.instalador_id === perfil?.id;
+
+    if (permisos.puedeVerProduccion && tieneDetalleProduccion(orden)) {
+      botones.push(
+        <button
+          key="orden-produccion"
+          type="button"
+          onClick={() => descargarOrdenProduccion(orden)}
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-white font-bold rounded-xl text-[11px] shadow-lg transition-all whitespace-nowrap"
+          title="Descargar la orden de producción con materiales y accesorios"
+        >
+          <Download size={13} /> Orden de Producción
+        </button>,
+      );
+    }
 
     if (orden.estado === ESTADOS.PENDIENTE_ASIGNACION) {
       if (permisos.puedeInstalar && !orden.instalador_id) {
@@ -1220,7 +1303,7 @@ export default function OrdenesTrabajo({ perfil, ordenInicialId = null, onOrdenA
             key="tomar"
             type="button"
             onClick={() => tomarOrden(orden)}
-            className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl text-[11px] shadow-lg transition-all whitespace-nowrap"
+            className="px-3 py-1.5 bg-blue-700 hover:bg-blue-800 text-white font-bold rounded-xl text-[11px] shadow-lg transition-all whitespace-nowrap"
           >
             Tomar Orden
           </button>,
@@ -1232,7 +1315,7 @@ export default function OrdenesTrabajo({ perfil, ordenInicialId = null, onOrdenA
             key="produccion-directa"
             type="button"
             onClick={() => enviarAProduccion(orden)}
-            className="px-3 py-1.5 bg-orange-600 hover:bg-orange-500 text-white font-bold rounded-xl text-[11px] shadow-lg transition-all whitespace-nowrap"
+            className="px-3 py-1.5 bg-orange-700 hover:bg-orange-800 text-white font-bold rounded-xl text-[11px] shadow-lg transition-all whitespace-nowrap"
           >
             Enviar a Producción
           </button>,
@@ -1250,7 +1333,7 @@ export default function OrdenesTrabajo({ perfil, ordenInicialId = null, onOrdenA
           key="medidas"
           type="button"
           onClick={() => abrirModalMedidas(orden)}
-          className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white font-bold rounded-xl text-[11px] shadow-lg transition-all whitespace-nowrap"
+          className="px-3 py-1.5 bg-amber-700 hover:bg-amber-800 text-white font-bold rounded-xl text-[11px] shadow-lg transition-all whitespace-nowrap"
         >
           Enviar Medidas
         </button>,
@@ -1263,7 +1346,7 @@ export default function OrdenesTrabajo({ perfil, ordenInicialId = null, onOrdenA
           key="aprobar"
           type="button"
           onClick={() => enviarAProduccion(orden)}
-          className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-[11px] shadow-lg transition-all whitespace-nowrap"
+          className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-xl text-[11px] shadow-lg transition-all whitespace-nowrap"
         >
           Aprobar y Enviar a Taller
         </button>,
@@ -1276,7 +1359,7 @@ export default function OrdenesTrabajo({ perfil, ordenInicialId = null, onOrdenA
           key="aceptar"
           type="button"
           onClick={() => aceptarProduccion(orden)}
-          className="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-white font-bold rounded-xl text-[11px] shadow-lg transition-all whitespace-nowrap"
+          className="px-3 py-1.5 bg-cyan-700 hover:bg-cyan-800 text-white font-bold rounded-xl text-[11px] shadow-lg transition-all whitespace-nowrap"
         >
           Aceptar Trabajo
         </button>,
@@ -1289,7 +1372,7 @@ export default function OrdenesTrabajo({ perfil, ordenInicialId = null, onOrdenA
           key="vidrios"
           type="button"
           onClick={() => abrirVidrios(orden)}
-          className="px-3 py-1.5 bg-sky-600 hover:bg-sky-500 text-white font-bold rounded-xl text-[11px] shadow-lg transition-all whitespace-nowrap"
+          className="px-3 py-1.5 bg-sky-700 hover:bg-sky-800 text-white font-bold rounded-xl text-[11px] shadow-lg transition-all whitespace-nowrap"
         >
           Medidas de Vidrio
         </button>,
@@ -1302,7 +1385,7 @@ export default function OrdenesTrabajo({ perfil, ordenInicialId = null, onOrdenA
           key="terminar"
           type="button"
           onClick={() => abrirTerminado(orden)}
-          className="px-3 py-1.5 bg-purple-600 hover:bg-purple-500 text-white font-bold rounded-xl text-[11px] shadow-lg transition-all whitespace-nowrap"
+          className="px-3 py-1.5 bg-purple-700 hover:bg-purple-800 text-white font-bold rounded-xl text-[11px] shadow-lg transition-all whitespace-nowrap"
         >
           Terminar y Subir Foto
         </button>,
@@ -1321,7 +1404,7 @@ export default function OrdenesTrabajo({ perfil, ordenInicialId = null, onOrdenA
               'Orden marcada como entregada.',
             )
           }
-          className="px-3 py-1.5 bg-teal-600 hover:bg-teal-500 text-white font-bold rounded-xl text-[11px] shadow-lg transition-all whitespace-nowrap"
+          className="px-3 py-1.5 bg-teal-700 hover:bg-teal-800 text-white font-bold rounded-xl text-[11px] shadow-lg transition-all whitespace-nowrap"
         >
           Marcar Entregado
         </button>,
@@ -1349,9 +1432,7 @@ export default function OrdenesTrabajo({ perfil, ordenInicialId = null, onOrdenA
 
   const itemsDetalle = ordenDetalle ? itemsPorOrden.get(ordenDetalle.id) || [] : [];
   const vidriosDetalle = ordenDetalle ? vidriosPorOrden.get(ordenDetalle.id) || [] : [];
-  const despieceDetalle = ordenDetalle
-    ? normalizarDespiece(ordenDetalle.despiece) || calcularDespiece(ordenDetalle.id)
-    : null;
+  const despieceDetalle = ordenDetalle ? despieceDeOrden(ordenDetalle) : null;
 
   return (
     <div className="max-w-6xl mx-auto space-y-6 pb-12">
@@ -2038,6 +2119,16 @@ export default function OrdenesTrabajo({ perfil, ordenInicialId = null, onOrdenA
                   <strong className="text-cyan-300">{ordenDetalle.produccion_nombre}</strong>
                 </span>
               )}
+              {permisos.puedeVerProduccion &&
+                (itemsDetalle.length > 0 || (despieceDetalle?.items || []).length > 0) && (
+                <button
+                  type="button"
+                  onClick={() => descargarOrdenProduccion(ordenDetalle)}
+                  className="ml-auto flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-bold rounded-xl text-[11px] transition-colors"
+                >
+                  <Download size={13} /> Descargar orden de producción
+                </button>
+              )}
             </div>
 
             <div className="bg-blue-950/40 border border-blue-500/30 rounded-2xl p-4 space-y-3">
@@ -2487,7 +2578,7 @@ export default function OrdenesTrabajo({ perfil, ordenInicialId = null, onOrdenA
               <button
                 type="submit"
                 disabled={guardandoMedidas}
-                className="px-5 py-2.5 bg-amber-600 hover:bg-amber-500 text-white rounded-xl text-xs font-bold shadow-lg shadow-amber-600/20 disabled:opacity-50 transition-colors"
+                className="px-5 py-2.5 bg-amber-700 hover:bg-amber-800 text-white rounded-xl text-xs font-bold shadow-lg shadow-amber-600/20 disabled:opacity-50 transition-colors"
               >
                 {guardandoMedidas ? 'Enviando...' : 'Enviar Medidas'}
               </button>
@@ -2671,7 +2762,7 @@ export default function OrdenesTrabajo({ perfil, ordenInicialId = null, onOrdenA
             <button
               type="submit"
               disabled={modalVidrios.guardando}
-              className="px-5 py-2.5 bg-sky-600 hover:bg-sky-500 text-white rounded-xl text-xs font-bold shadow-lg shadow-sky-600/20 disabled:opacity-50 transition-colors"
+              className="px-5 py-2.5 bg-sky-700 hover:bg-sky-800 text-white rounded-xl text-xs font-bold shadow-lg shadow-sky-600/20 disabled:opacity-50 transition-colors"
             >
               {modalVidrios.guardando ? 'Enviando...' : 'Enviar al jefe'}
             </button>
@@ -2782,7 +2873,7 @@ export default function OrdenesTrabajo({ perfil, ordenInicialId = null, onOrdenA
             <button
               type="submit"
               disabled={modalTerminado.guardando}
-              className="px-5 py-2.5 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-xs font-bold shadow-lg shadow-purple-600/20 disabled:opacity-50 transition-colors"
+              className="px-5 py-2.5 bg-purple-700 hover:bg-purple-800 text-white rounded-xl text-xs font-bold shadow-lg shadow-purple-600/20 disabled:opacity-50 transition-colors"
             >
               {modalTerminado.guardando ? 'Guardando...' : 'Marcar Terminado'}
             </button>

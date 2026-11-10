@@ -180,7 +180,7 @@ export default function Notificaciones({ onVerOrden, onCambio }) {
         </div>
       </div>
 
-      <div className="flex gap-1 bg-slate-900 border border-slate-800 rounded-2xl p-1.5 w-full sm:w-fit">
+      <div className="flex w-full gap-1 overflow-x-auto rounded-2xl border border-slate-800 bg-slate-900 p-1.5 sm:w-fit">
         {[
           { id: 'TODAS', etiqueta: 'Todas' },
           { id: 'SIN_LEER', etiqueta: `Sin leer${sinLeer ? ` (${sinLeer})` : ''}` },
@@ -190,7 +190,8 @@ export default function Notificaciones({ onVerOrden, onCambio }) {
             key={opcion.id}
             type="button"
             onClick={() => setFiltro(opcion.id)}
-            className={`flex-1 sm:flex-none px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+            aria-pressed={filtro === opcion.id}
+            className={`shrink-0 whitespace-nowrap rounded-xl px-4 py-2 text-xs font-bold transition-all ${
               filtro === opcion.id
                 ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20'
                 : 'text-slate-400 hover:text-white hover:bg-slate-800'

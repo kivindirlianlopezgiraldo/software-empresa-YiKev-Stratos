@@ -11,6 +11,7 @@ import {
   History,
   Package,
   Plus,
+  Printer,
   RefreshCw,
   RotateCcw,
   Search,
@@ -21,6 +22,7 @@ import {
 } from 'lucide-react';
 
 import { supabase } from '../lib/supabase';
+import { imprimirActaHerramientas } from '../lib/actaHerramientas';
 import { CATEGORIAS_HERRAMIENTA, ESTADOS_HERRAMIENTA, categoriaRol } from '../lib/constants';
 import { formatFechaHora, nuevoId } from '../lib/format';
 
@@ -154,6 +156,7 @@ export default function Herramientas({ perfil, permisos }) {
   const [movimientos, setMovimientos] = useState([]);
   const [ordenes, setOrdenes] = useState([]);
   const [kits, setKits] = useState([]);
+  const [empresa, setEmpresa] = useState(null);
 
   const [modalKit, setModalKit] = useState(false);
   const [kitEditando, setKitEditando] = useState(null);
@@ -183,6 +186,7 @@ export default function Herramientas({ perfil, permisos }) {
       resMovimientos,
       resOrdenes,
       resKits,
+      resEmpresa,
     ] = await Promise.all([
         supabase.from('herramientas').select('*').order('nombre', { ascending: true }),
         supabase.from('herramienta_checklists').select('*').order('nombre', { ascending: true }),
@@ -193,7 +197,7 @@ export default function Herramientas({ perfil, permisos }) {
           .limit(120),
         supabase
           .from('perfiles_usuario')
-          .select('id, nombre_completo, rol, cargo, activo')
+          .select('id, nombre_completo, documento_id, rol, cargo, activo')
           .order('nombre_completo', { ascending: true }),
         supabase
           .from('herramienta_movimientos')
@@ -206,6 +210,7 @@ export default function Herramientas({ perfil, permisos }) {
           .order('creado_en', { ascending: false })
           .limit(80),
         supabase.from('herramienta_kits').select('*').order('nombre', { ascending: true }),
+        supabase.from('empresa_config').select('*').limit(1),
       ]);
 
     if (resHerramientas.error) throw resHerramientas.error;
@@ -218,6 +223,7 @@ export default function Herramientas({ perfil, permisos }) {
       movimientos: resMovimientos.error ? [] : resMovimientos.data ?? [],
       ordenes: resOrdenes.error ? [] : resOrdenes.data ?? [],
       kits: resKits.error ? [] : resKits.data ?? [],
+      empresa: resEmpresa.error ? null : (resEmpresa.data ?? [])[0] ?? null,
     };
   }, []);
 
@@ -234,6 +240,7 @@ export default function Herramientas({ perfil, permisos }) {
         setMovimientos(datos.movimientos);
         setOrdenes(datos.ordenes);
         setKits(datos.kits);
+        setEmpresa(datos.empresa);
         setError('');
       } catch (err) {
         if (activo) setError(explicarError(err));
@@ -1015,6 +1022,7 @@ export default function Herramientas({ perfil, permisos }) {
         mapa.set(clave, {
           id: clave,
           tipo: movimiento.tipo,
+          colaborador_id: movimiento.colaborador_id,
           colaborador_nombre: movimiento.colaborador_nombre,
           creado_en: movimiento.creado_en,
           registrado_por_nombre: movimiento.registrado_por_nombre,
@@ -1032,6 +1040,18 @@ export default function Herramientas({ perfil, permisos }) {
     () => new Map(ordenes.map((orden) => [orden.id, orden])),
     [ordenes],
   );
+
+  const abrirActa = (lote) => {
+    const orden = lote.orden_id ? ordenPorId.get(lote.orden_id) : null;
+    const colaborador = colaboradores.find((c) => c.id === lote.colaborador_id) || null;
+    imprimirActaHerramientas({
+      empresa,
+      lote,
+      orden,
+      colaborador: colaborador || { nombre_completo: lote.colaborador_nombre },
+      registradoPor: lote.registrado_por_nombre,
+    });
+  };
 
   const TABS = [
     { id: 'herramientas', etiqueta: 'Herramientas', Icono: Wrench },
@@ -1058,7 +1078,7 @@ export default function Herramientas({ perfil, permisos }) {
             <button
               type="button"
               onClick={abrirSalida}
-              className="flex items-center gap-2 bg-cyan-600 hover:bg-cyan-500 text-white font-bold px-4 py-2.5 rounded-xl text-xs transition-all shadow-lg shadow-cyan-600/20"
+              className="flex items-center gap-2 bg-cyan-700 hover:bg-cyan-800 text-white font-bold px-4 py-2.5 rounded-xl text-xs transition-all shadow-lg shadow-cyan-600/20"
             >
               <ArrowUpRight size={16} /> Salida de herramientas
             </button>
@@ -1085,7 +1105,7 @@ export default function Herramientas({ perfil, permisos }) {
             <button
               type="button"
               onClick={() => abrirRegistro('salida')}
-              className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-4 py-2.5 rounded-xl text-xs transition-all shadow-lg shadow-emerald-600/20"
+              className="flex items-center gap-2 bg-emerald-700 hover:bg-emerald-800 text-white font-bold px-4 py-2.5 rounded-xl text-xs transition-all shadow-lg shadow-emerald-600/20"
             >
               <ClipboardCheck size={16} /> Registrar checklist
             </button>
@@ -1112,13 +1132,14 @@ export default function Herramientas({ perfil, permisos }) {
         ))}
       </div>
 
-      <div className="flex gap-1 bg-slate-900 border border-slate-800 rounded-2xl p-1.5 w-full sm:w-fit">
+      <div className="flex w-full gap-1 overflow-x-auto rounded-2xl border border-slate-800 bg-slate-900 p-1.5 sm:w-fit">
         {TABS.map(({ id, etiqueta, Icono }) => (
           <button
             key={id}
             type="button"
             onClick={() => setTab(id)}
-            className={`flex flex-1 sm:flex-none items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+            aria-pressed={tab === id}
+            className={`flex shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl px-3 py-2 text-xs font-bold transition-all sm:px-4 ${
               tab === id
                 ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20'
                 : 'text-slate-400 hover:text-white hover:bg-slate-800'
@@ -1162,6 +1183,7 @@ export default function Herramientas({ perfil, permisos }) {
             <select
               value={filtroEstado}
               onChange={(evento) => setFiltroEstado(evento.target.value)}
+              aria-label="Filtrar herramientas por estado"
               className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-blue-500"
             >
               <option value="TODOS">Todos los estados</option>
@@ -1623,9 +1645,19 @@ export default function Herramientas({ perfil, permisos }) {
                         {orden ? ` · Orden ${orden.codigo_orden || ''} ${orden.cliente_nombre || ''}` : ''}
                       </p>
                     </div>
-                    <span className="text-[10px] font-mono text-slate-300 bg-slate-950 border border-slate-800 px-2 py-1 rounded-lg">
-                      {lote.items.length} herramienta(s)
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-mono text-slate-300 bg-slate-950 border border-slate-800 px-2 py-1 rounded-lg">
+                        {lote.items.length} herramienta(s)
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => abrirActa(lote)}
+                        className="flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-[10px] font-bold transition-colors"
+                      >
+                        <Printer size={12} />
+                        {esSalida ? 'Carta responsiva' : 'Acta de devolución'}
+                      </button>
+                    </div>
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-1">
@@ -2060,7 +2092,7 @@ export default function Herramientas({ perfil, permisos }) {
             <button
               type="submit"
               disabled={guardando}
-              className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold shadow-lg shadow-emerald-600/20 disabled:opacity-50 transition-colors"
+              className="px-5 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold shadow-lg shadow-emerald-600/20 disabled:opacity-50 transition-colors"
             >
               {guardando ? 'Guardando...' : 'Firmar checklist'}
             </button>
@@ -2333,7 +2365,7 @@ export default function Herramientas({ perfil, permisos }) {
             <button
               type="submit"
               disabled={guardando}
-              className="px-5 py-2.5 bg-cyan-600 hover:bg-cyan-500 text-white rounded-xl text-xs font-bold shadow-lg shadow-cyan-600/20 disabled:opacity-50 transition-colors"
+              className="px-5 py-2.5 bg-cyan-700 hover:bg-cyan-800 text-white rounded-xl text-xs font-bold shadow-lg shadow-cyan-600/20 disabled:opacity-50 transition-colors"
             >
               {guardando ? 'Guardando...' : 'Registrar salida'}
             </button>
@@ -2552,7 +2584,7 @@ export default function Herramientas({ perfil, permisos }) {
             <button
               type="submit"
               disabled={guardando}
-              className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold shadow-lg shadow-emerald-600/20 disabled:opacity-50 transition-colors"
+              className="px-5 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold shadow-lg shadow-emerald-600/20 disabled:opacity-50 transition-colors"
             >
               {guardando ? 'Guardando...' : 'Registrar entrada'}
             </button>

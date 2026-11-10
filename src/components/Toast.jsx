@@ -6,32 +6,37 @@ export default function Toast({ alerta, onClose }) {
   const esExito = alerta.tipo === 'exito';
 
   return (
-    <div className="fixed top-6 right-6 z-[100] animate-toast-in print:hidden" role="status" aria-live="polite">
+    <div
+      className="pointer-events-none fixed inset-x-3 top-3 z-[100] flex justify-end animate-toast-in print:hidden sm:inset-x-auto sm:right-6 sm:top-6"
+      role="status"
+      aria-live="polite"
+    >
       <div
-        className={`flex items-start gap-4 p-4 rounded-2xl shadow-2xl border max-w-md w-full ${
+        className={`pointer-events-auto flex w-full max-w-md items-start gap-3 rounded-2xl border p-3 shadow-2xl sm:gap-4 sm:p-4 ${
           esExito
-            ? 'bg-emerald-950/95 border-emerald-500/50 text-emerald-200'
-            : 'bg-red-950/95 border-red-500/50 text-red-200'
+            ? 'border-emerald-500/50 bg-emerald-950/95 text-emerald-200'
+            : 'border-red-500/50 bg-red-950/95 text-red-200'
         }`}
       >
         <div
-          className={`p-2.5 rounded-xl shrink-0 ${
+          className={`shrink-0 rounded-xl p-2 sm:p-2.5 ${
             esExito ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'
           }`}
+          aria-hidden="true"
         >
-          {esExito ? <CheckCircle size={22} /> : <ShieldAlert size={22} />}
+          {esExito ? <CheckCircle size={20} /> : <ShieldAlert size={20} />}
         </div>
 
-        <div className="flex-1 min-w-0">
-          <h4 className="text-sm font-black text-white break-words">{alerta.titulo}</h4>
-          <p className="text-xs mt-1 opacity-90 leading-relaxed break-words">{alerta.mensaje}</p>
+        <div className="min-w-0 flex-1">
+          <h4 className="break-words text-sm font-black text-white">{alerta.titulo}</h4>
+          <p className="mt-1 break-words text-xs leading-relaxed opacity-90">{alerta.mensaje}</p>
         </div>
 
         <button
           type="button"
           onClick={onClose}
           aria-label="Cerrar notificación"
-          className="text-white/60 hover:text-white transition-colors p-1 rounded-lg hover:bg-white/5"
+          className="shrink-0 rounded-lg p-2 text-white/60 transition-colors hover:bg-white/5 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40"
         >
           <X size={18} />
         </button>

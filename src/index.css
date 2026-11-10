@@ -8,15 +8,46 @@
 
 html {
   scroll-behavior: smooth;
+  scroll-padding-top: 4.5rem;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
 body {
   margin: 0;
+  min-width: 320px;
+  overflow-x: hidden;
   background-color: #090d16;
   color: #ffffff;
   font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu,
     Cantarell, sans-serif;
   -webkit-font-smoothing: antialiased;
+}
+
+img,
+video,
+canvas {
+  max-width: 100%;
+  height: auto;
+}
+
+/* En pantallas angostas, 16 px evita el zoom automático de iOS al enfocar. */
+@media (max-width: 767px) {
+  input:not([type='checkbox']):not([type='radio']):not([type='range']),
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
+/* Comportamiento táctil más ágil y sin retardo de 300 ms. */
+@media (pointer: coarse) {
+  button,
+  [role='button'],
+  a,
+  summary {
+    touch-action: manipulation;
+  }
 }
 
 /* Animaciones propias (no dependemos de tailwindcss-animate) */
@@ -59,6 +90,11 @@ body {
   .animate-modal-in {
     animation: none;
   }
+}
+
+/* Contraste: slate-500 puro no alcanza AA sobre fondos oscuros. */
+.text-slate-500 {
+  color: #94a3b8;
 }
 
 /* Barra de desplazamiento oscura */

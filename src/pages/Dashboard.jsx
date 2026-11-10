@@ -144,7 +144,7 @@ export default function Dashboard({ perfil }) {
           type="button"
           onClick={recargar}
           disabled={cargando}
-          className="flex items-center gap-2 bg-slate-950 hover:bg-slate-800 px-4 py-2.5 rounded-2xl border border-slate-800 text-xs font-mono text-slate-300 transition-all disabled:opacity-50"
+          className="flex items-center gap-2 bg-slate-950 hover:bg-slate-800 px-4 py-2.5 rounded-2xl border border-slate-800 text-xs font-mono text-slate-200 transition-all disabled:opacity-70"
         >
           <span
             className={`w-2 h-2 rounded-full ${cargando ? 'bg-amber-500 animate-pulse' : 'bg-emerald-500'}`}
@@ -201,7 +201,7 @@ export default function Dashboard({ perfil }) {
           <div className="space-y-2">
             <div className="flex items-center gap-2 text-blue-400">
               <Box size={20} />
-              <h3 className="text-sm font-bold text-white">Inventario de Materiales</h3>
+              <h2 className="text-sm font-bold text-white">Inventario de Materiales</h2>
             </div>
             <p className="text-xs text-slate-400">
               Perfiles de aluminio, vidrios, empaques y accesorios registrados.
@@ -219,7 +219,7 @@ export default function Dashboard({ perfil }) {
           <div className="space-y-2">
             <div className="flex items-center gap-2 text-purple-400">
               <Users size={20} />
-              <h3 className="text-sm font-bold text-white">Equipo de Colaboradores</h3>
+              <h2 className="text-sm font-bold text-white">Equipo de Colaboradores</h2>
             </div>
             <p className="text-xs text-slate-400">
               Personal activo en taller, áreas de corte, vidrio e instalación.

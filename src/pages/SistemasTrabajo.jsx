@@ -18,18 +18,34 @@ import {
   TIPOS_SISTEMA,
 } from '../lib/constants';
 import { formatCOP, nuevoId } from '../lib/format';
-import { etiquetaFormula, etiquetaTipoPieza, generarDespiece } from '../lib/despiece';
+import {
+  LARGO_BARRA_DEFECTO_CM,
+  configuracionFormula,
+  describirFormula,
+  etiquetaTipoPieza,
+  generarDespiece,
+} from '../lib/despiece';
 
 import Toast from '../components/Toast';
 import Modal from '../components/Modal';
 import DespiecePanel from '../components/DespiecePanel';
 import useToast from '../hooks/useToast';
 
+// Copia el objeto sin las columnas indicadas (para bases sin la migración 008).
+const sinColumnas = (datos, columnas) => {
+  const copia = { ...datos };
+  columnas.forEach((columna) => {
+    delete copia[columna];
+  });
+  return copia;
+};
+
 const FORM_SISTEMA_VACIO = {
   nombre: '',
   linea: LINEAS_SISTEMA[0],
   tipo: 'corrediza',
   descripcion: '',
+  largoBarra: String(LARGO_BARRA_DEFECTO_CM),
   descuentoVidrioAncho: '30',
   descuentoVidrioAlto: '30',
   descuentoPerfilAncho: '0',
@@ -37,12 +53,15 @@ const FORM_SISTEMA_VACIO = {
   merma: '5',
 };
 
-const FORM_MATERIAL_VACIO = {
-  cantidad: '1',
+const FORM_MATERIAL_VACIO = {  cantidad: '1',
   tipoPieza: 'perfil',
   formula: 'perimetro',
   descuento: '0',
   merma: '0',
+  restarCm: '0',
+  dividir: '1',
+  referencia: '',
+  angulo: '0',
 };
 
 export default function SistemasTrabajo({ permisos }) {
@@ -72,6 +91,10 @@ export default function SistemasTrabajo({ permisos }) {
   const [formulaLargo, setFormulaLargo] = useState(FORM_MATERIAL_VACIO.formula);
   const [descuentoMm, setDescuentoMm] = useState(FORM_MATERIAL_VACIO.descuento);
   const [mermaLinea, setMermaLinea] = useState(FORM_MATERIAL_VACIO.merma);
+  const [restarCm, setRestarCm] = useState(FORM_MATERIAL_VACIO.restarCm);
+  const [dividir, setDividir] = useState(FORM_MATERIAL_VACIO.dividir);
+  const [referencia, setReferencia] = useState(FORM_MATERIAL_VACIO.referencia);
+  const [angulo, setAngulo] = useState(FORM_MATERIAL_VACIO.angulo);
   const [lineaEditando, setLineaEditando] = useState(null);
   const [verPreview, setVerPreview] = useState(false);
   const [agregandoMaterial, setAgregandoMaterial] = useState(false);
@@ -150,15 +173,33 @@ export default function SistemasTrabajo({ permisos }) {
   const cargarMaterialesDelSistema = useCallback(async (sistemaId) => {
     setCargandoMateriales(true);
     try {
-      const { data, error: errorConsulta } = await supabase
-        .from('sistema_materiales')
-        .select(
-          `id, cantidad_requerida, tipo_pieza, formula_largo, descuento_mm,
-           merma_porcentaje, es_vidrio, orden,
-           material:material_id (id, nombre, codigo_referencia, unidad_medida, precio_venta, categoria)`,
-        )
-        .eq('sistema_id', sistemaId)
-        .order('orden', { ascending: true });
+      const consultaCompleta = () =>
+        supabase
+          .from('sistema_materiales')
+          .select(
+            `id, cantidad_requerida, tipo_pieza, formula_largo, formula_config,
+             angulo_corte, descuento_mm, merma_porcentaje, es_vidrio, orden,
+             material:material_id (id, nombre, codigo_referencia, unidad_medida, precio_venta, categoria)`,
+          )
+          .eq('sistema_id', sistemaId)
+          .order('orden', { ascending: true });
+
+      let { data, error: errorConsulta } = await consultaCompleta();
+
+      // Si aún no se aplicó la migración 008, se consulta sin las columnas nuevas.
+      if (errorConsulta && /formula_config|angulo_corte/i.test(errorConsulta.message || '')) {
+        const respaldo = await supabase
+          .from('sistema_materiales')
+          .select(
+            `id, cantidad_requerida, tipo_pieza, formula_largo, descuento_mm,
+             merma_porcentaje, es_vidrio, orden,
+             material:material_id (id, nombre, codigo_referencia, unidad_medida, precio_venta, categoria)`,
+          )
+          .eq('sistema_id', sistemaId)
+          .order('orden', { ascending: true });
+        data = respaldo.data;
+        errorConsulta = respaldo.error;
+      }
 
       if (errorConsulta) throw errorConsulta;
       setMaterialesDelSistema(data ?? []);
@@ -183,6 +224,7 @@ export default function SistemasTrabajo({ permisos }) {
       linea: sistema.linea || LINEAS_SISTEMA[0],
       tipo: sistema.tipo || 'corrediza',
       descripcion: sistema.descripcion || '',
+      largoBarra: String(sistema.largo_barra_cm ?? LARGO_BARRA_DEFECTO_CM),
       descuentoVidrioAncho: String(sistema.descuento_vidrio_ancho_mm ?? 30),
       descuentoVidrioAlto: String(sistema.descuento_vidrio_alto_mm ?? 30),
       descuentoPerfilAncho: String(sistema.descuento_perfil_ancho_mm ?? 0),
@@ -212,6 +254,7 @@ export default function SistemasTrabajo({ permisos }) {
         linea: form.linea,
         tipo: form.tipo,
         descripcion: form.descripcion.trim(),
+        largo_barra_cm: numero(form.largoBarra, LARGO_BARRA_DEFECTO_CM) || LARGO_BARRA_DEFECTO_CM,
         descuento_vidrio_ancho_mm: numero(form.descuentoVidrioAncho, 30),
         descuento_vidrio_alto_mm: numero(form.descuentoVidrioAlto, 30),
         descuento_perfil_ancho_mm: numero(form.descuentoPerfilAncho, 0),
@@ -219,20 +262,30 @@ export default function SistemasTrabajo({ permisos }) {
         merma_porcentaje: numero(form.merma, 5),
       };
 
-      if (sistemaEditando) {
-        const { error: errorUpdate } = await supabase
-          .from('sistemas_trabajo')
-          .update(payload)
-          .eq('id', sistemaEditando.id);
-        if (errorUpdate) throw errorUpdate;
-        mostrar('¡Actualizado!', 'El sistema fue modificado correctamente.', 'exito');
-      } else {
-        const { error: errorInsert } = await supabase
-          .from('sistemas_trabajo')
-          .insert([{ id: nuevoId(), ...payload }]);
-        if (errorInsert) throw errorInsert;
-        mostrar('¡Sistema Creado!', 'El sistema de trabajo fue registrado.', 'exito');
+      // Fallback: si la migración 008 aún no está aplicada, guarda sin largo_barra_cm.
+      const guardar = async (datos) => {
+        if (sistemaEditando) {
+          return supabase
+            .from('sistemas_trabajo')
+            .update(datos)
+            .eq('id', sistemaEditando.id);
+        }
+        return supabase.from('sistemas_trabajo').insert([{ id: nuevoId(), ...datos }]);
+      };
+
+      let respuesta = await guardar(payload);
+      if (respuesta.error && /largo_barra_cm/i.test(respuesta.error.message || '')) {
+        respuesta = await guardar(sinColumnas(payload, ['largo_barra_cm']));
       }
+      if (respuesta.error) throw respuesta.error;
+
+      mostrar(
+        sistemaEditando ? '¡Actualizado!' : '¡Sistema Creado!',
+        sistemaEditando
+          ? 'El sistema fue modificado correctamente.'
+          : 'El sistema de trabajo fue registrado.',
+        'exito',
+      );
 
       setModalSistema(false);
       refrescar();
@@ -271,6 +324,10 @@ export default function SistemasTrabajo({ permisos }) {
     setFormulaLargo(FORM_MATERIAL_VACIO.formula);
     setDescuentoMm(FORM_MATERIAL_VACIO.descuento);
     setMermaLinea(FORM_MATERIAL_VACIO.merma);
+    setRestarCm(FORM_MATERIAL_VACIO.restarCm);
+    setDividir(FORM_MATERIAL_VACIO.dividir);
+    setReferencia(FORM_MATERIAL_VACIO.referencia);
+    setAngulo(FORM_MATERIAL_VACIO.angulo);
     setLineaEditando(null);
   };
 
@@ -306,6 +363,7 @@ export default function SistemasTrabajo({ permisos }) {
   };
 
   const editarLinea = (item) => {
+    const config = configuracionFormula(item);
     setLineaEditando(item.id);
     setMaterialSeleccionado(item.material || null);
     setTextoBusquedaMaterial(
@@ -313,9 +371,13 @@ export default function SistemasTrabajo({ permisos }) {
     );
     setCantidadRequerida(String(item.cantidad_requerida ?? 1));
     setTipoPieza(item.tipo_pieza || 'accesorio');
-    setFormulaLargo(item.formula_largo || 'fijo');
+    setFormulaLargo(config.base || item.formula_largo || 'fijo');
     setDescuentoMm(String(item.descuento_mm ?? 0));
     setMermaLinea(String(item.merma_porcentaje ?? 0));
+    setRestarCm(String(config.restarCm ?? 0));
+    setDividir(String(config.dividir ?? 1));
+    setReferencia(config.referencia || '');
+    setAngulo(String(config.angulo ?? 0));
     setMostrarSugerencias(false);
   };
 
@@ -339,33 +401,61 @@ export default function SistemasTrabajo({ permisos }) {
         cantidad_requerida: cantidad,
         tipo_pieza: tipoPieza,
         formula_largo: tipoPieza === 'perfil' ? formulaLargo : 'fijo',
+        formula_config:
+          tipoPieza === 'perfil'
+            ? {
+                base: formulaLargo,
+                restarCm: Math.max(0, numero(restarCm, 0)),
+                dividir: Math.max(1, numero(dividir, 1) || 1),
+                referencia: formulaLargo === 'referencia' ? referencia.trim() : '',
+                angulo: Math.max(0, numero(angulo, 0)),
+              }
+            : {
+                base: 'fijo',
+                restarCm: 0,
+                dividir: 1,
+                referencia: '',
+                angulo: 0,
+              },
+        angulo_corte:
+          tipoPieza === 'perfil' ? Math.max(0, numero(angulo, 0)) : 0,
         descuento_mm: Math.max(0, numero(descuentoMm, 0)),
         merma_porcentaje: Math.max(0, numero(mermaLinea, 0)),
         es_vidrio: tipoPieza === 'vidrio',
       };
 
       if (lineaEditando) {
-        const { error: errorUpdate } = await supabase
-          .from('sistema_materiales')
-          .update(metadata)
-          .eq('id', lineaEditando);
-        if (errorUpdate) throw errorUpdate;
+        const actualizarMetadata = (datos) =>
+          supabase.from('sistema_materiales').update(datos).eq('id', lineaEditando);
+
+        let respuesta = await actualizarMetadata(metadata);
+        // Respaldo si falta la migración 008.
+        if (respuesta.error && /formula_config|angulo_corte/i.test(respuesta.error.message || '')) {
+          respuesta = await actualizarMetadata(sinColumnas(metadata, ['formula_config', 'angulo_corte']));
+        }
+        if (respuesta.error) throw respuesta.error;
         mostrar('Línea actualizada', 'La pieza de la receta fue modificada.', 'exito');
       } else {
         const siguienteOrden = materialesDelSistema.reduce(
           (maximo, item) => Math.max(maximo, Number(item.orden) || 0),
           0,
         );
-        const { error: errorInsert } = await supabase.from('sistema_materiales').insert([
-          {
-            id: nuevoId(),
-            sistema_id: sistemaSeleccionado.id,
-            material_id: materialSeleccionado.id,
-            orden: siguienteOrden + 1,
-            ...metadata,
-          },
-        ]);
-        if (errorInsert) throw errorInsert;
+        const insertarMetadata = (datos) =>
+          supabase.from('sistema_materiales').insert([
+            {
+              id: nuevoId(),
+              sistema_id: sistemaSeleccionado.id,
+              material_id: materialSeleccionado.id,
+              orden: siguienteOrden + 1,
+              ...datos,
+            },
+          ]);
+
+        let respuesta = await insertarMetadata(metadata);
+        if (respuesta.error && /formula_config|angulo_corte/i.test(respuesta.error.message || '')) {
+          respuesta = await insertarMetadata(sinColumnas(metadata, ['formula_config', 'angulo_corte']));
+        }
+        if (respuesta.error) throw respuesta.error;
         mostrar('Material agregado', 'El material quedó asociado al sistema.', 'exito');
       }
 
@@ -717,22 +807,41 @@ export default function SistemasTrabajo({ permisos }) {
                 />
               </div>
             </div>
-            <div className="w-full sm:w-40">
-              <label htmlFor="merma-sistema" className="block text-[10px] text-slate-400 mb-1">
-                Merma general (%)
-              </label>
-              <input
-                id="merma-sistema"
-                type="number"
-                min="0"
-                step="0.1"
-                value={form.merma}
-                onChange={(evento) => setForm((prev) => ({ ...prev, merma: evento.target.value }))}
-                className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-blue-500"
-              />
+            <div className="grid grid-cols-2 gap-2 max-w-md">
+              <div>
+                <label htmlFor="largo-barra" className="block text-[10px] text-slate-400 mb-1">
+                  Largo de barra (cm)
+                </label>
+                <input
+                  id="largo-barra"
+                  type="number"
+                  min="1"
+                  step="0.1"
+                  value={form.largoBarra}
+                  onChange={(evento) =>
+                    setForm((prev) => ({ ...prev, largoBarra: evento.target.value }))
+                  }
+                  className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-blue-500"
+                />
+              </div>
+              <div>
+                <label htmlFor="merma-sistema" className="block text-[10px] text-slate-400 mb-1">
+                  Merma general (%)
+                </label>
+                <input
+                  id="merma-sistema"
+                  type="number"
+                  min="0"
+                  step="0.1"
+                  value={form.merma}
+                  onChange={(evento) => setForm((prev) => ({ ...prev, merma: evento.target.value }))}
+                  className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-blue-500"
+                />
+              </div>
             </div>
             <p className="text-[10px] text-slate-500">
-              El descuento se resta al vidrio y a cada corte al calcular el despiece de la orden.
+              Escribe el largo real de la barra de perfil (en este taller: 595 cm). El descuento se
+              resta al vidrio y a cada corte al calcular el despiece de la orden.
             </p>
           </div>
 
@@ -975,6 +1084,89 @@ export default function SistemasTrabajo({ permisos }) {
                 />
               </div>
             </div>
+
+            {tipoPieza === 'perfil' && (
+              <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 space-y-2">
+                <p className="text-[10px] uppercase tracking-wider font-bold text-cyan-400">
+                  Fórmula avanzada · (base − restar cm − descuento) ÷ dividir
+                </p>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  <div>
+                    <label
+                      htmlFor="restar-cm"
+                      className="block text-[10px] font-semibold text-slate-400 mb-1"
+                    >
+                      Restar (cm)
+                    </label>
+                    <input
+                      id="restar-cm"
+                      type="number"
+                      min="0"
+                      step="0.1"
+                      value={restarCm}
+                      onChange={(evento) => setRestarCm(evento.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-2 text-[11px] text-white font-mono focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label
+                      htmlFor="dividir-linea"
+                      className="block text-[10px] font-semibold text-slate-400 mb-1"
+                    >
+                      Dividir entre
+                    </label>
+                    <input
+                      id="dividir-linea"
+                      type="number"
+                      min="1"
+                      step="1"
+                      value={dividir}
+                      onChange={(evento) => setDividir(evento.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-2 text-[11px] text-white font-mono focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label
+                      htmlFor="angulo-linea"
+                      className="block text-[10px] font-semibold text-slate-400 mb-1"
+                    >
+                      Ángulo de corte (°)
+                    </label>
+                    <input
+                      id="angulo-linea"
+                      type="number"
+                      min="0"
+                      step="0.1"
+                      value={angulo}
+                      onChange={(evento) => setAngulo(evento.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-2 text-[11px] text-white font-mono focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label
+                      htmlFor="referencia-linea"
+                      className="block text-[10px] font-semibold text-slate-400 mb-1"
+                    >
+                      Pieza de referencia
+                    </label>
+                    <input
+                      id="referencia-linea"
+                      type="text"
+                      value={referencia}
+                      onChange={(evento) => setReferencia(evento.target.value)}
+                      disabled={formulaLargo !== 'referencia'}
+                      placeholder="Ej. PV17 Ancho"
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-2 text-[11px] text-white focus:outline-none focus:border-blue-500 disabled:opacity-40"
+                    />
+                  </div>
+                </div>
+                <p className="text-[10px] text-slate-500">
+                  Jamba 50/20: base alto, restar 1.3 cm, ángulo 5°. Horizontal: base ancho, restar
+                  2.8 cm, dividir 4. Barra toallera: fórmula “medida de otra pieza”, referencia
+                  “PV17 Ancho”, restar 9 cm.
+                </p>
+              </div>
+            )}
           </form>
         )}
 
@@ -1020,8 +1212,11 @@ export default function SistemasTrabajo({ permisos }) {
                     <p className="text-[10px] text-slate-400 font-mono">
                       Ref: {item.material?.codigo_referencia || 'N/A'} ·{' '}
                       {etiquetaTipoPieza(item.tipo_pieza)}
-                      {item.tipo_pieza === 'perfil' && item.formula_largo
-                        ? ` · ${etiquetaFormula(item.formula_largo)}`
+                      {item.tipo_pieza === 'perfil'
+                        ? ` · ${describirFormula(
+                            item.formula_largo,
+                            configuracionFormula(item),
+                          )}`
                         : ''}
                       {Number(item.descuento_mm) > 0
                         ? ` · −${Number(item.descuento_mm)} mm`

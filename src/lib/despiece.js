@@ -3,16 +3,20 @@
 // ----------------------------------------------------------------------------
 // A partir de las medidas de cada ítem de la orden y de la receta configurada
 // en el sistema, calcula:
-//   · medidas de corte de cada perfil (con descuentos y merma),
-//   · cantidad de barras de 6 m,
+//   · medidas de corte de cada perfil (con descuentos, divisores y ángulos),
+//   · qué piezas caben en los retales que hay en producción,
+//   · cuántas barras nuevas de 595 cm se necesitan,
 //   · medidas exactas de cada vidrio,
 //   · accesorios, empaques y cantidades,
 //   · costo estimado de materiales.
 // No accede a Supabase: recibe los datos ya cargados para poder probarse y
-// reutilizarse en la vista previa y en el guardado de la orden.
+// reutilizarse en la vista previa, en el guardado de la orden y en la orden de
+// producción imprimible.
 // ============================================================================
 
 import { FORMULAS_CORTE, TIPOS_PIEZA } from './constants';
+
+export const LARGO_BARRA_DEFECTO_CM = 595;
 
 const num = (valor, defecto = 0) => {
   const n = Number(valor);
@@ -24,13 +28,22 @@ const redondear = (valor, decimales = 1) => {
   return Math.round((num(valor) + Number.EPSILON) * factor) / factor;
 };
 
-const limite = (valor) => Math.max(0, valor);
+const limite = (valor) => Math.max(0, num(valor));
+
+const normalizarTexto = (valor) =>
+  String(valor || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
 
 const esCategoriaVidrio = (categoria = '') =>
   /vidrio|cristal|espejo/i.test(String(categoria));
 
 const esCategoriaPerfil = (categoria = '') =>
   /perfil|aluminio|pvc|acrílico|acrilico/i.test(String(categoria));
+
+const esUnidadBarra = (unidad = '') => /barra/i.test(String(unidad));
 
 export function etiquetaFormula(valor) {
   return FORMULAS_CORTE.find((f) => f.valor === valor)?.etiqueta || 'Cantidad fija';
@@ -61,6 +74,62 @@ export function largoBaseCm(formula, anchoCm, altoCm) {
   }
 }
 
+/**
+ * Devuelve la configuración de fórmula de una línea de receta.
+ *
+ * Las recetas nuevas guardan `formula_config` con:
+ *   { base, restarCm, dividir, referencia, angulo }
+ * Las recetas antiguas siguen funcionando con `formula_largo` + `descuento_mm`.
+ */
+export function configuracionFormula(linea = {}) {
+  const crudo = linea.formula_config ?? linea.formulaConfig ?? null;
+  const tieneConfig =
+    crudo &&
+    typeof crudo === 'object' &&
+    (crudo.base ||
+      crudo.restarCm != null ||
+      crudo.restar_cm != null ||
+      crudo.dividir != null ||
+      crudo.divisor != null ||
+      crudo.referencia);
+
+  if (!tieneConfig) {
+    return {
+      avanzada: false,
+      base: linea.formula_largo || linea.formula || 'fijo',
+      restarCm: 0,
+      dividir: 1,
+      referencia: '',
+      angulo: num(linea.angulo_corte ?? linea.anguloCorte),
+    };
+  }
+
+  return {
+    avanzada: true,
+    base: crudo.base || 'ancho',
+    restarCm: Math.max(0, num(crudo.restarCm ?? crudo.restar_cm)),
+    dividir: Math.max(1, num(crudo.dividir ?? crudo.divisor, 1) || 1),
+    referencia: String(crudo.referencia || '').trim(),
+    angulo: num(crudo.angulo ?? linea.angulo_corte ?? linea.anguloCorte),
+  };
+}
+
+/** Texto legible de la fórmula configurada, para tablas y fichas. */
+export function describirFormula(formula, config) {
+  if (!config || !config.avanzada) return etiquetaFormula(formula);
+
+  let texto =
+    config.base === 'referencia'
+      ? `Medida de ${config.referencia || 'otra pieza'}`
+      : etiquetaFormula(config.base);
+
+  if (config.restarCm) texto += ` − ${config.restarCm} cm`;
+  if (config.dividir > 1) texto = `(${texto}) ÷ ${config.dividir}`;
+  if (config.angulo) texto += ` · ${config.angulo}°`;
+
+  return texto;
+}
+
 function datosMaterial(linea) {
   const material = linea.material || {};
   const categoria = material.categoria || linea.categoria || '';
@@ -74,8 +143,13 @@ function datosMaterial(linea) {
           ? 'empaque'
           : 'accesorio');
 
+  const config = configuracionFormula(linea);
+
   return {
     materialId: material.id || linea.material_id || linea.id,
+    materialKey: String(
+      material.id || linea.material_id || linea.id || normalizarTexto(material.nombre || linea.material_nombre),
+    ),
     nombre: material.nombre || linea.material_nombre || 'Material sin nombre',
     codigo: material.codigo_referencia || linea.codigo_referencia || '',
     categoria,
@@ -84,6 +158,8 @@ function datosMaterial(linea) {
     tipoPieza,
     esVidrio: Boolean(linea.es_vidrio) || tipoPieza === 'vidrio' || esCategoriaVidrio(categoria),
     formula: linea.formula_largo || (tipoPieza === 'perfil' ? 'perimetro' : 'fijo'),
+    config,
+    formulaTexto: describirFormula(linea.formula_largo || '', config),
     descuentoMm: num(linea.descuento_mm),
     merma: num(linea.merma_porcentaje),
     cantidadReceta: num(linea.cantidad_requerida, 1) || 1,
@@ -91,25 +167,250 @@ function datosMaterial(linea) {
 }
 
 /**
+ * Calcula el largo de corte de una pieza.
+ * En fórmulas avanzadas el descuento se resta antes de dividir:
+ *   horizontal = (ancho − 2.8) ÷ 4
+ */
+function largoCorteDeFormula(config, anchoCm, altoCm, referenciaCm, descuentoMm) {
+  let baseCm;
+
+  if (config.avanzada && config.base === 'referencia') {
+    baseCm = num(referenciaCm);
+  } else {
+    baseCm = largoBaseCm(config.base, anchoCm, altoCm);
+  }
+
+  const restarCm = config.avanzada ? config.restarCm : 0;
+  const divisor = config.avanzada ? config.dividir : 1;
+  const descuento = num(descuentoMm) / 10;
+
+  return limite((baseCm - restarCm - descuento) / Math.max(1, divisor));
+}
+
+function compatibilidadColor(colorRetal, colorPieza) {
+  const a = normalizarTexto(colorRetal);
+  const b = normalizarTexto(colorPieza);
+  if (!a || !b) return true;
+  if (a === 'sin definir' || b === 'sin definir') return true;
+  return a === b;
+}
+
+function compatibilidadMaterial(retal, pieza) {
+  const idRetal = retal.material_id ?? retal.materialId;
+  if (idRetal && pieza.materialId && String(idRetal) === String(pieza.materialId)) return true;
+
+  const nombreRetal = normalizarTexto(
+    retal.material_nombre || retal.materialNombre || retal.nombre || '',
+  );
+  const nombrePieza = normalizarTexto(pieza.nombre);
+  if (!nombreRetal || !nombrePieza) return false;
+
+  return (
+    nombreRetal === nombrePieza ||
+    nombreRetal.includes(nombrePieza) ||
+    nombrePieza.includes(nombreRetal)
+  );
+}
+
+function expandirRetales(retales = []) {
+  const instancias = [];
+
+  retales.forEach((retal) => {
+    if (retal.disponible === false) return;
+    const largo = num(retal.largo_cm ?? retal.largoCm);
+    if (largo <= 0) return;
+
+    const cantidad = Math.max(1, Math.round(num(retal.cantidad, 1)));
+    for (let i = 0; i < cantidad; i += 1) {
+      instancias.push({
+        ...retal,
+        largo_cm: largo,
+        _instancia: i,
+        _restante: largo,
+        _usadas: [],
+      });
+    }
+  });
+
+  return instancias;
+}
+
+function nombreRetal(retal) {
+  const base =
+    retal.codigo ||
+    retal.material_nombre ||
+    retal.materialNombre ||
+    retal.nombre ||
+    'Retal';
+  const cantidad = Math.max(1, Math.round(num(retal.cantidad, 1)));
+  return cantidad > 1 ? `${base} #${retal._instancia + 1}` : base;
+}
+
+/**
+ * Reparte las piezas entre retales existentes y barras nuevas.
+ * Estrategia: primero el retal más pequeño donde quepa (best fit) y luego
+ * barras de 595 cm con first-fit decreasing.
+ */
+function optimizarRetales(piezas = [], retales = [], largoBarraDefecto = LARGO_BARRA_DEFECTO_CM) {
+  const grupos = new Map();
+
+  piezas.forEach((pieza) => {
+    const clave = `${pieza.materialKey}|${normalizarTexto(pieza.color)}|${pieza.largoBarraCm}`;
+    if (!grupos.has(clave)) {
+      grupos.set(clave, {
+        clave,
+        materialKey: pieza.materialKey,
+        materialId: pieza.materialId,
+        nombre: pieza.nombre,
+        color: pieza.color,
+        largoBarraCm: pieza.largoBarraCm || largoBarraDefecto,
+        precio: pieza.precio,
+        unidadBarra: pieza.unidadBarra,
+        piezas: [],
+      });
+    }
+    grupos.get(clave).piezas.push(pieza);
+  });
+
+  const pool = expandirRetales(retales);
+  const barrasGrupos = [];
+
+  grupos.forEach((grupo) => {
+    const compatibles = pool.filter(
+      (retal) =>
+        compatibilidadColor(retal.color, grupo.color) &&
+        compatibilidadMaterial(retal, {
+          materialId: grupo.materialId,
+          nombre: grupo.nombre,
+        }),
+    );
+
+    const ordenadas = [...grupo.piezas].sort((a, b) => b.largoCm - a.largoCm);
+    const pendientes = [];
+
+    ordenadas.forEach((pieza) => {
+      let mejor = null;
+      compatibles.forEach((retal) => {
+        if (retal._restante + 0.0001 < pieza.largoCm) return;
+        if (!mejor || retal._restante < mejor._restante) mejor = retal;
+      });
+
+      if (!mejor) {
+        pendientes.push(pieza);
+        return;
+      }
+
+      mejor._restante = Math.max(0, mejor._restante - pieza.largoCm);
+      mejor._usadas.push(pieza);
+      pieza.fuente = 'retal';
+      pieza.retalId = mejor.id;
+      pieza.retalCodigo = nombreRetal(mejor);
+      pieza.retalLargoCm = redondear(mejor.largo_cm);
+      pieza.retalSobranteCm = redondear(mejor._restante);
+      pieza.retalUbicacion = mejor.ubicacion || '';
+    });
+
+    const barras = [];
+    pendientes.forEach((pieza) => {
+      let barra = barras.find((fila) => fila._restante + 0.0001 >= pieza.largoCm);
+      if (!barra) {
+        barra = {
+          numero: barras.length + 1,
+          _restante: grupo.largoBarraCm,
+          piezas: [],
+        };
+        barras.push(barra);
+      }
+
+      barra._restante = Math.max(0, barra._restante - pieza.largoCm);
+      barra.piezas.push(pieza);
+      pieza.fuente = 'barra';
+      pieza.barraNumero = barra.numero;
+    });
+
+    if (ordenadas.length > 0) {
+      barrasGrupos.push({
+        clave: grupo.clave,
+        materialKey: grupo.materialKey,
+        materialId: grupo.materialId,
+        nombre: grupo.nombre,
+        color: grupo.color,
+        largoBarraCm: grupo.largoBarraCm,
+        precio: grupo.precio,
+        unidadBarra: grupo.unidadBarra,
+        barras: barras.length,
+        piezas: pendientes.length,
+        piezasRetal: ordenadas.length - pendientes.length,
+        sobranteCm: redondear(
+          barras.reduce((total, barra) => total + barra._restante, 0),
+        ),
+      });
+    }
+  });
+
+  const retalesUsados = pool
+    .filter((retal) => retal._usadas.length > 0)
+    .map((retal) => ({
+      retalId: retal.id,
+      codigo: nombreRetal(retal),
+      material: retal.material_nombre || retal.materialNombre || retal.nombre || 'Retal',
+      materialId: retal.material_id || retal.materialId || null,
+      color: retal.color || 'Sin definir',
+      largoCm: redondear(retal.largo_cm),
+      sobranteCm: redondear(retal._restante),
+      aprovechamiento: redondear(
+        ((retal.largo_cm - retal._restante) / retal.largo_cm) * 100,
+        0,
+      ),
+      piezas: retal._usadas.length,
+      detallePiezas: retal._usadas.map((pieza) => ({
+        descripcion: pieza.descripcion,
+        material: pieza.nombre,
+        largoCm: redondear(pieza.largoCm),
+        angulo: pieza.angulo,
+      })),
+      ubicacion: retal.ubicacion || '',
+    }));
+
+  return {
+    barrasGrupos,
+    barrasNuevas: barrasGrupos.filter((grupo) => grupo.barras > 0),
+    retalesUsados,
+    piezasRetal: pool.reduce((total, retal) => total + retal._usadas.length, 0),
+    piezasBarra: barrasGrupos.reduce((total, grupo) => total + grupo.piezas, 0),
+  };
+}
+
+/**
  * Calcula el despiece de una orden.
  *
  * @param {Array} items  Ítems de la orden: { id, sistema_id, sistemaId, descripcion,
- *                       ancho_cm, alto_cm, cantidad, tipo_trabajo, vidrio_tipo, vidrio_espesor }
- * @param {Array} sistemas Sistemas con su receta: { id, nombre, descuento_vidrio_ancho_mm,
- *                       descuento_vidrio_alto_mm, merma_porcentaje, materiales: [...] }
+ *                       ancho_cm, alto_cm, cantidad, tipo_trabajo, vidrio_tipo,
+ *                       vidrio_espesor, color }
+ * @param {Array} sistemas Sistemas con su receta: { id, nombre, largo_barra_cm,
+ *                       descuento_vidrio_ancho_mm, descuento_vidrio_alto_mm,
+ *                       merma_porcentaje, materiales: [...] }
+ * @param {Object} opciones { retales, largoBarraCm }
  */
-export function generarDespiece(items = [], sistemas = []) {
+export function generarDespiece(items = [], sistemas = [], opciones = {}) {
   const mapaSistemas = new Map();
   sistemas.forEach((sistema) => mapaSistemas.set(String(sistema.id), sistema));
 
+  const retales = Array.isArray(opciones.retales) ? opciones.retales : [];
+  const largoBarraDefecto =
+    num(opciones.largoBarraCm, LARGO_BARRA_DEFECTO_CM) || LARGO_BARRA_DEFECTO_CM;
+
   const advertencias = [];
   const itemsCalculados = [];
+  const lineasGlobales = [];
+  const todasLasPiezas = [];
   const resumenMapa = new Map();
 
   const agregarResumen = (linea) => {
     const clave = String(linea.materialId || linea.nombre);
     const actual = resumenMapa.get(clave) || {
       materialId: linea.materialId,
+      materialKey: linea.materialKey,
       nombre: linea.nombre,
       codigo: linea.codigo,
       unidad: linea.unidad,
@@ -118,6 +419,8 @@ export function generarDespiece(items = [], sistemas = []) {
       totalMetros: 0,
       areaM2: 0,
       barras: 0,
+      piezasRetal: 0,
+      piezasBarra: 0,
       costo: 0,
     };
 
@@ -125,6 +428,8 @@ export function generarDespiece(items = [], sistemas = []) {
     actual.totalMetros += linea.totalMetros || 0;
     actual.areaM2 += linea.areaM2 || 0;
     actual.barras += linea.barras || 0;
+    actual.piezasRetal += linea.piezasRetal || 0;
+    actual.piezasBarra += linea.piezasBarra || 0;
     actual.costo += linea.costo || 0;
     resumenMapa.set(clave, actual);
   };
@@ -135,6 +440,10 @@ export function generarDespiece(items = [], sistemas = []) {
     const anchoCm = num(item.ancho_cm ?? item.anchoCm);
     const altoCm = num(item.alto_cm ?? item.altoCm);
     const cantidadItem = Math.max(1, Math.round(num(item.cantidad, 1)));
+    const color = item.color || 'Sin definir';
+    const largoBarraCm =
+      num(sistema?.largo_barra_cm ?? sistema?.largoBarraCm, largoBarraDefecto) ||
+      largoBarraDefecto;
 
     const descripcion =
       item.descripcion?.trim() ||
@@ -163,21 +472,110 @@ export function generarDespiece(items = [], sistemas = []) {
     const accesorios = [];
     let costoItem = 0;
 
-    receta.forEach((linea) => {
+    // ------------------------------------------------------------------
+    // 1) Preparar las líneas de perfil y resolver fórmulas con referencia
+    //    (ej. barra toallera = medida de PV17 ancho − 9 cm).
+    // ------------------------------------------------------------------
+    const lineasReceta = receta.map((linea, lineIndex) => {
       const material = datosMaterial(linea);
+      return {
+        lineIndex,
+        linea,
+        material,
+        key: `${indice}-${lineIndex}`,
+        largoCorteCm: null,
+      };
+    });
+
+    const buscarReferencia = (linea, texto) => {
+      const objetivo = normalizarTexto(texto);
+      if (!objetivo) return null;
+      return lineasReceta.find((candidata) => {
+        if (candidata === linea) return false;
+        const nombre = normalizarTexto(candidata.material.nombre);
+        return (
+          nombre === objetivo ||
+          nombre.includes(objetivo) ||
+          objetivo.includes(nombre)
+        );
+      });
+    };
+
+    lineasReceta.forEach((fila) => {
+      if (fila.material.tipoPieza !== 'perfil') return;
+      if (fila.material.config.avanzada && fila.material.config.base === 'referencia') return;
+
+      fila.largoCorteCm = largoCorteDeFormula(
+        fila.material.config,
+        anchoCm,
+        altoCm,
+        null,
+        fila.material.descuentoMm,
+      );
+    });
+
+    for (let intento = 0; intento < 4; intento += 1) {
+      let pendientes = false;
+
+      lineasReceta.forEach((fila) => {
+        if (fila.material.tipoPieza !== 'perfil') return;
+        if (fila.largoCorteCm != null) return;
+        if (!fila.material.config.avanzada || fila.material.config.base !== 'referencia') return;
+
+        const referencia = buscarReferencia(fila, fila.material.config.referencia);
+        if (!referencia || referencia.largoCorteCm == null) {
+          pendientes = true;
+          return;
+        }
+
+        fila.largoCorteCm = largoCorteDeFormula(
+          fila.material.config,
+          anchoCm,
+          altoCm,
+          referencia.largoCorteCm,
+          fila.material.descuentoMm,
+        );
+      });
+
+      if (!pendientes) break;
+    }
+
+    lineasReceta.forEach((fila) => {
+      if (fila.material.tipoPieza !== 'perfil') return;
+      if (fila.largoCorteCm != null) return;
+
+      advertencias.push(
+        `${descripcion} · ${fila.material.nombre}: no se encontró la pieza de referencia “${
+          fila.material.config.referencia || 'sin nombre'
+        }”. Se toma el ancho del vano.`,
+      );
+      fila.largoCorteCm = largoCorteDeFormula(
+        { ...fila.material.config, base: 'ancho', referencia: '' },
+        anchoCm,
+        altoCm,
+        null,
+        fila.material.descuentoMm,
+      );
+    });
+
+    // ------------------------------------------------------------------
+    // 2) Construir cortes, vidrios y accesorios del ítem.
+    // ------------------------------------------------------------------
+    lineasReceta.forEach((fila) => {
+      const material = fila.material;
       const merma = material.merma || mermaSistema;
-      const cantidadPorItem = material.cantidadReceta;
 
       if (material.esVidrio) {
         const anchoMm = limite(anchoCm * 10 - descVidrioAncho - material.descuentoMm);
         const altoMm = limite(altoCm * 10 - descVidrioAlto - material.descuentoMm);
-        const piezas = Math.max(1, Math.round(cantidadPorItem)) * cantidadItem;
+        const piezas = Math.max(1, Math.round(material.cantidadReceta)) * cantidadItem;
         const areaUnidad = (anchoMm / 1000) * (altoMm / 1000);
         const areaM2 = areaUnidad * piezas * (1 + merma / 100);
         const costo = areaM2 * material.precio;
 
-        const fila = {
+        const registro = {
           materialId: material.materialId,
+          materialKey: material.materialKey,
           nombre: material.nombre,
           codigo: material.codigo,
           tipoPieza: 'vidrio',
@@ -190,47 +588,100 @@ export function generarDespiece(items = [], sistemas = []) {
           costo: redondear(costo, 0),
         };
 
-        vidrios.push(fila);
-        agregarResumen(fila);
+        vidrios.push(registro);
+        agregarResumen(registro);
         costoItem += costo;
         return;
       }
 
       if (material.tipoPieza === 'perfil') {
-        const baseCm = largoBaseCm(material.formula, anchoCm, altoCm);
-        const piezas = cantidadPorItem * cantidadItem;
-        const largoCorteCm = limite(baseCm - material.descuentoMm / 10);
-        const totalMetros = (largoCorteCm / 100) * piezas * (1 + merma / 100);
-        const unidadBarra = /barra/i.test(material.unidad);
-        const barras = unidadBarra ? Math.ceil(totalMetros / 6) : 0;
-        const costo = barras > 0 ? barras * material.precio : totalMetros * material.precio;
+        const piezas = Math.max(1, Math.round(material.cantidadReceta)) * cantidadItem;
+        const largoCorteCm = redondear(fila.largoCorteCm, 1);
 
-        const fila = {
+        if (largoCorteCm <= 0) {
+          advertencias.push(
+            `${descripcion} · ${material.nombre}: la medida de corte da 0 cm. Revisa la fórmula.`,
+          );
+        }
+        if (largoCorteCm > largoBarraCm) {
+          advertencias.push(
+            `${descripcion} · ${material.nombre}: la pieza mide ${formatearCm(
+              largoCorteCm,
+            )} y supera la barra de ${formatearCm(largoBarraCm, 0)}.`,
+          );
+        }
+
+        const totalMetros = (largoCorteCm / 100) * piezas * (1 + merma / 100);
+        const unidadBarra = esUnidadBarra(material.unidad);
+        const barrasLinea = unidadBarra
+          ? Math.ceil(totalMetros / (largoBarraCm / 100))
+          : 0;
+        const costo = unidadBarra
+          ? barrasLinea * material.precio
+          : totalMetros * material.precio;
+
+        const registro = {
+          lineKey: `${indice}-${fila.lineIndex}`,
           materialId: material.materialId,
+          materialKey: material.materialKey,
           nombre: material.nombre,
           codigo: material.codigo,
           tipoPieza: 'perfil',
           formula: material.formula,
-          unidad: unidadBarra ? 'barra 6 m' : material.unidad,
+          formulaConfig: material.config,
+          formulaTexto: material.formulaTexto,
+          anguloCorte: material.config.angulo || 0,
+          unidad: unidadBarra ? `barra ${redondear(largoBarraCm, 0)} cm` : material.unidad,
+          precio: material.precio,
+          unidadBarra,
           cantidad: redondear(piezas, 2),
-          largoCorteCm: redondear(largoCorteCm),
+          largoCorteCm,
           totalMetros: redondear(totalMetros, 2),
-          barras,
+          barras: barrasLinea,
+          barrasNuevas: 0,
+          piezasRetal: 0,
+          piezasBarra: 0,
+          retalCodigos: [],
           merma,
           costo: redondear(costo, 0),
+          color,
+          largoBarraCm,
         };
 
-        cortes.push(fila);
-        agregarResumen(fila);
+        cortes.push(registro);
+        lineasGlobales.push(registro);
+        agregarResumen(registro);
         costoItem += costo;
+
+        for (let i = 0; i < piezas; i += 1) {
+          todasLasPiezas.push({
+            key: `${indice}-${fila.lineIndex}-${i}`,
+            lineKey: registro.lineKey,
+            itemIndice: indice,
+            itemId: item.id,
+            itemDescripcion: descripcion,
+            materialId: material.materialId,
+            materialKey: material.materialKey,
+            nombre: material.nombre,
+            color,
+            largoCm: largoCorteCm,
+            angulo: material.config.angulo || 0,
+            largoBarraCm,
+            precio: material.precio,
+            unidadBarra,
+            formulaTexto: material.formulaTexto,
+          });
+        }
+
         return;
       }
 
       // Accesorios, empaques y sellantes: cantidad directa.
-      const cantidad = cantidadPorItem * cantidadItem;
+      const cantidad = material.cantidadReceta * cantidadItem;
       const costo = cantidad * material.precio;
-      const fila = {
+      const registro = {
         materialId: material.materialId,
+        materialKey: material.materialKey,
         nombre: material.nombre,
         codigo: material.codigo,
         tipoPieza: material.tipoPieza,
@@ -239,8 +690,8 @@ export function generarDespiece(items = [], sistemas = []) {
         costo: redondear(costo, 0),
       };
 
-      accesorios.push(fila);
-      agregarResumen(fila);
+      accesorios.push(registro);
+      agregarResumen(registro);
       costoItem += costo;
     });
 
@@ -255,7 +706,8 @@ export function generarDespiece(items = [], sistemas = []) {
       cantidad: cantidadItem,
       vidrioTipo: item.vidrio_tipo || item.vidrioTipo || '',
       vidrioEspesor: item.vidrio_espesor || item.vidrioEspesor || '',
-      color: item.color || '',
+      color,
+      largoBarraCm,
       cortes,
       vidrios,
       accesorios,
@@ -263,13 +715,82 @@ export function generarDespiece(items = [], sistemas = []) {
     });
   });
 
-  const resumen = [...resumenMapa.values()].map((linea) => ({
-    ...linea,
-    cantidad: redondear(linea.cantidad, 2),
-    totalMetros: redondear(linea.totalMetros, 2),
-    areaM2: redondear(linea.areaM2, 2),
-    costo: redondear(linea.costo, 0),
-  }));
+  // --------------------------------------------------------------------
+  // 3) Repartir las piezas entre retales y barras de 595 cm.
+  // --------------------------------------------------------------------
+  const optimizacion = optimizarRetales(todasLasPiezas, retales, largoBarraDefecto);
+
+  const piezasPorLinea = new Map();
+  todasLasPiezas.forEach((pieza) => {
+    if (!piezasPorLinea.has(pieza.lineKey)) piezasPorLinea.set(pieza.lineKey, []);
+    piezasPorLinea.get(pieza.lineKey).push(pieza);
+  });
+
+  const barrasPorMaterial = new Map();
+  optimizacion.barrasGrupos.forEach((grupo) => {
+    const actual = barrasPorMaterial.get(grupo.materialKey) || {
+      barras: 0,
+      piezasRetal: 0,
+      piezasBarra: 0,
+    };
+    actual.barras += grupo.barras;
+    actual.piezasRetal += grupo.piezasRetal;
+    actual.piezasBarra += grupo.piezas;
+    barrasPorMaterial.set(grupo.materialKey, actual);
+  });
+
+  lineasGlobales.forEach((linea) => {
+    const piezas = piezasPorLinea.get(linea.lineKey) || [];
+    const barras = barrasPorMaterial.get(linea.materialKey) || {
+      barras: 0,
+      piezasRetal: linea.piezasRetal || 0,
+      piezasBarra: linea.piezasBarra || 0,
+    };
+
+    linea.piezasRetal = barras.piezasRetal;
+    linea.piezasBarra = barras.piezasBarra;
+    linea.barrasNuevas = barras.barras;
+    linea.barras = barras.barras;
+    linea.retalCodigos = [
+      ...new Set(
+        piezas
+          .filter((pieza) => pieza.fuente === 'retal' && pieza.retalCodigo)
+          .map((pieza) => pieza.retalCodigo),
+      ),
+    ];
+  });
+
+  const resumen = [...resumenMapa.values()].map((linea) => {
+    const barras = barrasPorMaterial.get(linea.materialKey) || {
+      barras: 0,
+      piezasRetal: linea.piezasRetal,
+      piezasBarra: linea.piezasBarra,
+    };
+
+    return {
+      ...linea,
+      barras: barras.barras,
+      piezasRetal: barras.piezasRetal,
+      piezasBarra: barras.piezasBarra,
+      cantidad: redondear(linea.cantidad, 2),
+      totalMetros: redondear(linea.totalMetros, 2),
+      areaM2: redondear(linea.areaM2, 2),
+      costo: redondear(linea.costo, 0),
+    };
+  });
+
+  // Costo de compra: las piezas que salen de retales no se compran de nuevo.
+  // Los perfiles solo cuentan por las barras nuevas presupuestadas.
+  let costoCompra = 0;
+
+  resumen.forEach((linea) => {
+    if (linea.tipoPieza !== 'perfil') costoCompra += linea.costo;
+  });
+
+  costoCompra += optimizacion.barrasGrupos.reduce(
+    (total, grupo) => total + grupo.barras * grupo.precio,
+    0,
+  );
 
   const totales = resumen.reduce(
     (acc, linea) => ({
@@ -282,18 +803,28 @@ export function generarDespiece(items = [], sistemas = []) {
     { metrosPerfil: 0, barras: 0, areaVidrio: 0, costo: 0, materiales: 0 },
   );
 
+  const largoBarraCm = itemsCalculados[0]?.largoBarraCm || largoBarraDefecto;
+
   return {
     generadoEn: new Date().toISOString(),
+    largoBarraCm,
     items: itemsCalculados,
     resumen,
+    retalesUsados: optimizacion.retalesUsados,
+    barrasNuevas: optimizacion.barrasNuevas,
     totales: {
       metrosPerfil: redondear(totales.metrosPerfil, 2),
       barras: totales.barras,
       areaVidrio: redondear(totales.areaVidrio, 2),
       costo: redondear(totales.costo, 0),
+      costoCompra: redondear(costoCompra, 0),
       materiales: totales.materiales,
       items: itemsCalculados.length,
       piezas: itemsCalculados.reduce((total, item) => total + item.cantidad, 0),
+      piezasRetal: optimizacion.piezasRetal,
+      piezasBarra: optimizacion.piezasBarra,
+      retalesUsados: optimizacion.retalesUsados.length,
+      largoBarraCm,
     },
     advertencias,
   };

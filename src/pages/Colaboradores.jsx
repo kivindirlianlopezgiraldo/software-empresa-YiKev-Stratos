@@ -491,7 +491,7 @@ export default function Colaboradores({ perfil }) {
             ))}
           </select>
 
-          <div className="inline-flex bg-slate-950 border border-slate-800 rounded-xl p-1 gap-1">
+          <div className="inline-flex max-w-full gap-1 overflow-x-auto rounded-xl border border-slate-800 bg-slate-950 p-1">
             {[
               ['todos', 'Todos'],
               ['activos', 'Activos'],
@@ -502,7 +502,7 @@ export default function Colaboradores({ perfil }) {
                 type="button"
                 onClick={() => setFiltroEstado(valor)}
                 aria-pressed={filtroEstado === valor}
-                className={`px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-colors ${
+                className={`shrink-0 whitespace-nowrap rounded-lg px-3 py-1.5 text-[11px] font-semibold transition-colors ${
                   filtroEstado === valor
                     ? 'bg-blue-600 text-white'
                     : 'text-slate-400 hover:text-white hover:bg-slate-800'

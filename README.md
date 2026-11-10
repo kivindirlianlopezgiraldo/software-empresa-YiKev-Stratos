@@ -87,23 +87,51 @@ cliente. Cada ítem guarda sistema, medidas, cantidad, tipo de vidrio, espesor y
   **producción**.
 - Al enviar a producción, el frontend calcula el despiece con la receta del sistema y lo
   guarda como instantánea JSONB en `ordenes_trabajo.despiece`.
-- El despiece incluye cortes de perfiles (con descuentos y merma), barras de 6 m, medidas
-  exactas de vidrio, accesorios, cantidades y costo estimado.
+- El despiece aplica automáticamente los **descuentos de cada sistema** al escribir las
+  medidas. Por ejemplo, en el **50/20**: sillar y cabezal al ancho total, jamba = alto − 1.3 cm
+  con corte a 5°, tope y enganche = alto − 3 cm y horizontal = (ancho − 2.8 cm) ÷ 4. En la
+  **cabina de baño**: War 12 alto = alto − 3 cm, PV17 fija = alto − 4.5 cm, PV17 corrediza =
+  alto − 5.5 cm, PV17 ancho = (ancho − 1 cm) ÷ 2 y barra toallera = PV17 ancho − 9 cm.
+- Cada línea de receta guarda una `formula_config`:
+  `{ base, restarCm, dividir, referencia, angulo }`. La fórmula es
+  `(base − restarCm − descuento_mm/10) ÷ dividir` y puede tomar la medida de otra pieza
+  (por ejemplo, la barra toallera usa la medida del PV17 ancho).
+- El perfil de aluminio se maneja en **barras de 595 cm** (`sistemas_trabajo.largo_barra_cm`).
+- Antes de pedir barras nuevas, el motor compara cada pieza con los **retales disponibles**
+  en producción (`retales_produccion`) por material, color y largo. Los retales se consumen
+  primero y solo lo que no cabe se convierte en barras nuevas.
+- El despiece incluye cortes de perfiles (con descuentos, ángulo y merma), medidas exactas
+  de vidrio, accesorios, cantidades, retales aprovechados, barras nuevas y costo estimado
+  de compra.
+- Desde la ficha de la orden (y en la tabla de órdenes) se puede **descargar o imprimir la
+  orden de producción**: datos del proyecto, cortes, retales, barras, vidrios, accesorios,
+  advertencias y espacio para firmas. Se genera como HTML imprimible en una ventana nueva
+  (guardar como PDF desde el diálogo de impresión).
 - Producción puede aceptar el trabajo, cambiar su estado, enviar las **medidas de vidrio**
   al jefe de taller y subir una **foto del producto terminado**.
-- El motor de cálculo vive en `src/lib/despiece.js` y la vista reutilizable en
+- El motor de cálculo vive en `src/lib/despiece.js`, la orden imprimible en
+  `src/lib/ordenProduccion.js` y la vista reutilizable en
   `src/components/DespiecePanel.jsx`.
 
 ## Herramientas e inventario de producción
 
 - El jefe de taller y el administrador asignan herramientas a cada colaborador desde
   **Herramientas y Checklists**.
+- **Salida de herramientas** entrega varias unidades de la lista a un colaborador, con orden
+  opcional y checklist. **Registrar entrada** devuelve solo las que tiene asignadas.
+- Los **kits por rol** (Producción, Instalación, Bodega) marcan automáticamente las
+  herramientas recomendadas para el área del colaborador.
+- Cada acta de la pestaña **Movimientos** se puede imprimir como **carta responsiva** o
+  **acta de devolución** (con datos del colaborador, herramientas, novedad y firmas).
 - Producción e instalación firman checklists de **salida** y **entrada**, marcan cada punto
   y registran novedades.
 - El catálogo, las plantillas de checklist y los registros son independientes del
   inventario general de materiales.
 - **Inventario de Producción** permite a cada colaborador consultar y editar sus insumos,
   ajustar stock (±1), definir mínimos y ubicación. El jefe y el administrador ven todo.
+- La pestaña **Retales de perfil** del mismo módulo registra los sobrantes de producción
+  (material, color, largo, cantidad y ubicación). Se pueden editar, marcar como no
+  disponibles o eliminar; el despiece los reutiliza automáticamente.
 - **Notificaciones** avisa por persona o por grupo (producción, instalador, bodega…) cuando
   entra un trabajo, se envían medidas o hay novedades de herramientas. La campana del menú
   muestra el contador de no leídas.
@@ -207,6 +235,7 @@ Respalda antes. Son idempotentes.
 | `005_produccion_herramientas_ia.sql` | Ítems de orden, medidas de vidrio, notificaciones, herramientas, checklists, inventario de producción y recetas ampliadas |
 | `006_herramientas_movimientos.sql` | Historial de salidas y entradas de herramientas por colaborador, con actas por lote y orden asociada |
 | `007_herramientas_kits.sql` | Kits de herramientas por rol (producción, instalación, bodega) y kits base |
+| `008_despiece_avanzado_retales.sql` | Barras de 595 cm, fórmula avanzada por pieza (descuentos, divisores, referencias y ángulos), tabla `retales_produccion` y plantillas 50/20 + cabina de baño |
 
 La 001, además:
 

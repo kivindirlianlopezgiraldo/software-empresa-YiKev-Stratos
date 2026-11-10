@@ -149,7 +149,28 @@ Al registrar una salida, el selector **Kit por rol** muestra los kits del área 
 colaborador elegido y marca automáticamente las herramientas disponibles cuyo nombre
 coincida. Si falta alguna, la app avisa cuáles no hay.
 
-### 2.7 Edge Function del asistente virtual (opcional)
+### 2.7 Migración 008: despiece avanzado y retales
+
+Ejecuta [`migrations/008_despiece_avanzado_retales.sql`](migrations/008_despiece_avanzado_retales.sql)
+en el **SQL Editor**.
+
+Ese script:
+
+- agrega `sistemas_trabajo.largo_barra_cm` con valor por defecto **595 cm**;
+- agrega `sistema_materiales.formula_config` y `angulo_corte` para configurar por pieza:
+  `{ base, restarCm, dividir, referencia, angulo }`;
+- crea la tabla `retales_produccion` (material, color, largo, cantidad, ubicación y
+  disponibilidad) con RLS para admin, jefe, taller y bodega;
+- crea/actualiza los sistemas **Sistema 50/20** y **Cabina de Baño** con sus recetas
+  completas, materiales y fórmulas.
+
+> Los materiales creados por la plantilla quedan con precio y stock en 0. Ajusta precios y
+> existencias en **Inventario** antes de usar el costo estimado.
+
+Sin esta migración, la app sigue funcionando, pero **Inventario de Producción → Retales**
+muestra el aviso para aplicarla y el despiece usa el largo de barra por defecto (595 cm).
+
+### 2.8 Edge Function del asistente virtual (opcional)
 
 El chatbot funciona sin IA con respuestas guiadas locales. Para activar la IA:
 

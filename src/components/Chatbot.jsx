@@ -101,15 +101,15 @@ export default function Chatbot({ modo = 'landing', contexto = {}, posicion = 'd
 
   return (
     <div
-      className={`fixed bottom-5 z-[60] flex flex-col gap-3 print:hidden ${
-        posicion === 'izquierda' ? 'left-5 items-start' : 'right-5 items-end'
+      className={`fixed bottom-[max(1rem,env(safe-area-inset-bottom))] z-[60] flex flex-col gap-3 print:hidden ${
+        posicion === 'izquierda' ? 'left-4 items-start sm:left-5' : 'right-4 items-end sm:right-5'
       }`}
     >
       {abierto && (
         <section
           role="dialog"
           aria-label={esEmpleado ? 'Asistente del taller' : 'Asistente de YiKev Stratos'}
-          className="flex h-[510px] w-[min(92vw,380px)] flex-col overflow-hidden rounded-3xl border border-slate-700 bg-slate-950 shadow-2xl shadow-blue-950/50"
+          className="flex h-[min(70dvh,510px)] w-[min(calc(100vw-2rem),380px)] flex-col overflow-hidden rounded-3xl border border-slate-700 bg-slate-950 shadow-2xl shadow-blue-950/50 sm:h-[510px]"
         >
           <header className="flex items-start justify-between gap-3 border-b border-slate-800 bg-gradient-to-r from-blue-950/80 via-slate-900 to-slate-950 px-4 py-3">
             <div className="flex items-center gap-3">
@@ -130,13 +130,18 @@ export default function Chatbot({ modo = 'landing', contexto = {}, posicion = 'd
               type="button"
               onClick={() => setAbierto(false)}
               aria-label="Cerrar asistente"
-              className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-800 hover:text-white"
+              className="rounded-lg p-2 text-slate-400 transition-colors hover:bg-slate-800 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
             >
               <X size={16} />
             </button>
           </header>
 
-          <div className="flex-1 space-y-3 overflow-y-auto px-3 py-4">
+          <div
+            className="flex-1 space-y-3 overflow-y-auto overscroll-contain px-3 py-4"
+            role="log"
+            aria-live="polite"
+            aria-relevant="additions"
+          >
             {mensajes.map((mensaje) => {
               const esUsuario = mensaje.rol === 'user';
               return (
@@ -193,7 +198,7 @@ export default function Chatbot({ modo = 'landing', contexto = {}, posicion = 'd
             )}
 
             {origen === 'local' && (
-              <p className="text-center text-[9px] text-slate-600">
+              <p className="text-center text-[9px] text-slate-400">
                 Respuesta guiada del taller · configura la IA para respuestas ampliadas
               </p>
             )}
@@ -211,18 +216,18 @@ export default function Chatbot({ modo = 'landing', contexto = {}, posicion = 'd
                 onKeyDown={alTeclear}
                 placeholder={esEmpleado ? 'Pregunta sobre el taller…' : 'Escribe tu pregunta…'}
                 aria-label="Mensaje para el asistente"
-                className="max-h-24 min-h-[38px] flex-1 resize-none rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-[11px] text-white placeholder:text-slate-600 focus:border-blue-500 focus:outline-none"
+                className="max-h-24 min-h-[44px] flex-1 resize-none rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-base text-white placeholder:text-slate-600 focus:border-blue-500 focus:outline-none sm:text-[11px]"
               />
               <button
                 type="submit"
                 disabled={!texto.trim() || enviando}
                 aria-label="Enviar mensaje"
-                className="flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-xl bg-blue-600 text-white shadow-lg shadow-blue-600/25 transition-colors hover:bg-blue-500 disabled:opacity-40"
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-blue-600 text-white shadow-lg shadow-blue-600/25 transition-colors hover:bg-blue-500 disabled:opacity-40 sm:h-[38px] sm:w-[38px]"
               >
                 <Send size={15} />
               </button>
             </div>
-            <p className="mt-1.5 text-center text-[9px] text-slate-600">
+            <p className="mt-1.5 text-center text-[9px] text-slate-400">
               No compartas contraseñas ni datos sensibles.
             </p>
           </form>
@@ -232,9 +237,9 @@ export default function Chatbot({ modo = 'landing', contexto = {}, posicion = 'd
       <button
         type="button"
         onClick={() => setAbierto((valor) => !valor)}
-        aria-label={abierto ? 'Cerrar asistente' : 'Abrir asistente virtual'}
+        aria-label={`${abierto ? 'Cerrar' : 'Abrir'} Asistente IA`}
         aria-expanded={abierto}
-        className="group flex items-center gap-2 rounded-2xl bg-gradient-to-br from-blue-600 to-cyan-500 px-4 py-3 text-xs font-bold text-white shadow-2xl shadow-blue-600/30 transition-transform hover:-translate-y-0.5"
+        className="group flex items-center gap-2 rounded-2xl bg-gradient-to-br from-blue-600 to-cyan-500 px-4 py-3 text-xs font-bold text-white shadow-2xl shadow-blue-600/30 transition-transform hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
       >
         {abierto ? <X size={18} /> : <MessageCircle size={18} />}
         <span className="hidden sm:inline">{abierto ? 'Cerrar' : 'Asistente IA'}</span>

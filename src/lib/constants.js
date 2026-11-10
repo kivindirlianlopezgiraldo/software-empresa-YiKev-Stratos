@@ -152,6 +152,12 @@ export const TIPOS_PIEZA = [
 ];
 
 // Cómo se calcula el largo de corte de una pieza a partir del vano.
+// Las fórmulas avanzadas de una línea se guardan en `formula_config`:
+//   { base, restarCm, dividir, referencia, angulo }
+// Ejemplos:
+//   jamba 50/20     -> { base: 'alto',  restarCm: 1.3, angulo: 5 }
+//   horizontal      -> { base: 'ancho', restarCm: 2.8, dividir: 4 }
+//   barra toallera  -> { base: 'referencia', referencia: 'PV17 ancho', restarCm: 9 }
 export const FORMULAS_CORTE = [
   { valor: 'fijo', etiqueta: 'Cantidad fija (sin corte)' },
   { valor: 'ancho', etiqueta: 'Ancho del vano' },
@@ -159,7 +165,11 @@ export const FORMULAS_CORTE = [
   { valor: 'ancho_mitad', etiqueta: 'Ancho ÷ 2 (una hoja)' },
   { valor: 'alto_mitad', etiqueta: 'Alto ÷ 2' },
   { valor: 'perimetro', etiqueta: 'Perímetro (2 ancho + 2 alto)' },
+  { valor: 'referencia', etiqueta: 'Medida de otra pieza (referencia)' },
 ];
+
+// Colores que se pueden usar para identificar un retal en producción.
+export const COLORES_RETAL = [...COLORES_PERFIL, 'Sin definir'];
 
 export const TIPOS_SISTEMA = [
   'corrediza',

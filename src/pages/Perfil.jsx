@@ -408,7 +408,7 @@ export default function Perfil({ session, onActualizado }) {
                 <button
                   type="submit"
                   disabled={guardandoPass}
-                  className="bg-amber-600 hover:bg-amber-500 text-white font-bold px-5 py-2.5 rounded-xl text-xs transition-all shadow-lg shadow-amber-600/20 disabled:opacity-50"
+                  className="bg-amber-700 hover:bg-amber-800 text-white font-bold px-5 py-2.5 rounded-xl text-xs transition-all shadow-lg shadow-amber-600/20 disabled:opacity-50"
                 >
                   {guardandoPass ? 'Actualizando...' : 'Cambiar Contraseña'}
                 </button>

@@ -34,7 +34,7 @@ export default function Login({ onVolver }) {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
+    <main className="flex min-h-screen items-center justify-center bg-slate-950 p-4">
       <div className="w-full max-w-md">
         {onVolver && (
           <button
@@ -46,7 +46,7 @@ export default function Login({ onVolver }) {
           </button>
         )}
 
-        <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full p-8 shadow-2xl">
+        <div className="w-full rounded-3xl border border-slate-800 bg-slate-900 p-5 shadow-2xl sm:p-8">
           <div className="flex flex-col items-center text-center mb-8">
             <div className="w-14 h-14 rounded-2xl bg-blue-600/10 border border-blue-500/20 text-blue-500 flex items-center justify-center mb-4 shadow-lg shadow-blue-500/10">
               <Shield size={28} />
@@ -131,6 +131,6 @@ export default function Login({ onVolver }) {
           </div>
         </div>
       </div>
-    </div>
+    </main>
   );
 }

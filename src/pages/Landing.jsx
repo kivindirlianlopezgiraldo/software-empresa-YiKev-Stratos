@@ -394,6 +394,18 @@ export default function Landing({ onIngresar }) {
     mensaje: '',
   });
 
+  // Cerrar el menú móvil con Escape (teclado y lectores de pantalla).
+  useEffect(() => {
+    if (!menuAbierto) return undefined;
+
+    const alPresionar = (evento) => {
+      if (evento.key === 'Escape') setMenuAbierto(false);
+    };
+
+    document.addEventListener('keydown', alPresionar);
+    return () => document.removeEventListener('keydown', alPresionar);
+  }, [menuAbierto]);
+
   useEffect(() => {
     let activo = true;
 
@@ -548,6 +560,7 @@ export default function Landing({ onIngresar }) {
             <button
               type="button"
               onClick={onIngresar}
+              aria-label="Ingresar al sistema"
               className="inline-flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/[0.04] px-3.5 py-2.5 text-xs font-semibold text-slate-200 transition-colors hover:border-white/20 hover:bg-white/[0.08]"
             >
               <LogIn size={14} /> <span className="hidden sm:inline">Ingresar</span>
@@ -557,6 +570,7 @@ export default function Landing({ onIngresar }) {
               onClick={() => setMenuAbierto((valor) => !valor)}
               aria-label={menuAbierto ? 'Cerrar menú' : 'Abrir menú'}
               aria-expanded={menuAbierto}
+              aria-controls="menu-movil-landing"
               className="rounded-xl border border-white/10 bg-white/[0.04] p-2.5 text-slate-300 lg:hidden"
             >
               {menuAbierto ? <X size={18} /> : <Menu size={18} />}
@@ -565,7 +579,11 @@ export default function Landing({ onIngresar }) {
         </div>
 
         {menuAbierto && (
-          <nav className="border-t border-white/5 bg-slate-950/95 px-5 py-4 lg:hidden" aria-label="Navegación móvil">
+          <nav
+            id="menu-movil-landing"
+            className="border-t border-white/5 bg-slate-950/95 px-5 py-4 lg:hidden"
+            aria-label="Navegación móvil"
+          >
             <div className="space-y-1">
               {ENLACES.map((enlace) => (
                 <a
