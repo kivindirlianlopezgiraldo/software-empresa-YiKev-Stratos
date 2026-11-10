@@ -2,8 +2,7 @@ import { useMemo, useState } from 'react';
 import { AlertCircle, Calculator, Lock, Plus, Save, Trash2 } from 'lucide-react';
 
 import { supabase } from '../lib/supabase';
-import { FORMULAS_CORTE, TIPOS_PIEZA } from '../lib/constants';
-import { nuevoId } from '../lib/format';
+import { FORMULAS_CORTE } from '../lib/constants';
 import {
   LARGO_BARRA_DEFECTO_CM,
   configuracionFormula,
@@ -14,6 +13,7 @@ import {
 
 import DespiecePanel from './DespiecePanel';
 import Modal from './Modal';
+import useConfirm from '../hooks/useConfirm';
 
 const CLASE_INPUT =
   'w-full bg-slate-950 border border-slate-800 rounded-lg px-2 py-1.5 text-[11px] text-white font-mono focus:outline-none focus:border-blue-500 disabled:opacity-40';
@@ -33,39 +33,19 @@ const sinColumnas = (datos, columnas) => {
   return copia;
 };
 
-const inferirTipoPieza = (material) => {
-  const categoria = String(material?.categoria || '').toLowerCase();
-  if (/vidrio|cristal|espejo/.test(categoria)) return 'vidrio';
-  if (/perfil|aluminio|pvc|acrílico|acrilico/.test(categoria)) return 'perfil';
-  if (/empaque|sellante|silicona/.test(categoria)) return 'empaque';
-  return 'accesorio';
-};
-
 const borradorDe = (linea) => {
   const config = configuracionFormula(linea);
   return {
-    cantidad: String(linea.cantidad_requerida ?? 1),
     base: config.base || linea.formula_largo || 'fijo',
     restarCm: String(config.restarCm ?? 0),
     dividir: String(config.dividir ?? 1),
     descuentoMm: String(linea.descuento_mm ?? 0),
     merma: String(linea.merma_porcentaje ?? 0),
     angulo: String(config.angulo ?? 0),
+    ladoAngulo: config.ladoAngulo || '',
     referencia: config.referencia || '',
+    descuentosAdicionalesMm: config.descuentosAdicionalesMm.map(String),
   };
-};
-
-const FORM_NUEVO_VACIO = {
-  materialId: '',
-  tipoPieza: 'perfil',
-  cantidad: '1',
-  base: 'ancho',
-  restarCm: '0',
-  descuentoMm: '0',
-  dividir: '1',
-  angulo: '0',
-  referencia: '',
-  merma: '0',
 };
 
 const construirBorradores = (lineas) => {
@@ -80,14 +60,15 @@ export default function DescuentosSistema({
   abierto,
   sistema,
   materiales = [],
-  inventario = [],
   puedeEditar = false,
   soportaAvanzado = true,
   onClose,
+  onOpenMaterials,
   onRecargarMateriales,
   onSistemaActualizado,
   mostrar,
 }) {
+  const confirmar = useConfirm();
   // El componente se monta de nuevo (key en el padre) cuando cambia el sistema
   // o la lista de piezas, así el formulario siempre parte de la receta actual.
   const [borradores, setBorradores] = useState(() => construirBorradores(materiales));
@@ -98,21 +79,58 @@ export default function DescuentosSistema({
   const [descuentoVidrioAlto, setDescuentoVidrioAlto] = useState(() =>
     String(sistema?.descuento_vidrio_alto_mm ?? 30),
   );
-  const [guardandoVidrio, setGuardandoVidrio] = useState(false);
+  const [descuentoPerfilAncho, setDescuentoPerfilAncho] = useState(() =>
+    String(sistema?.descuento_perfil_ancho_mm ?? 0),
+  );
+  const [descuentoPerfilAlto, setDescuentoPerfilAlto] = useState(() =>
+    String(sistema?.descuento_perfil_alto_mm ?? 0),
+  );
+  const [largoBarra, setLargoBarra] = useState(() =>
+    String(sistema?.largo_barra_cm ?? LARGO_BARRA_DEFECTO_CM),
+  );
+  const [mermaGeneral, setMermaGeneral] = useState(() =>
+    String(sistema?.merma_porcentaje ?? 5),
+  );
+  const [guardandoConfiguracion, setGuardandoConfiguracion] = useState(false);
   const [anchoMuestra, setAnchoMuestra] = useState('120');
   const [altoMuestra, setAltoMuestra] = useState('100');
-  const [nuevo, setNuevo] = useState(FORM_NUEVO_VACIO);
-  const [agregando, setAgregando] = useState(false);
-
-  const materialNuevo = useMemo(
-    () => inventario.find((material) => material.id === nuevo.materialId) || null,
-    [inventario, nuevo.materialId],
-  );
 
   const cambiarBorrador = (id, campo, valor) => {
     setBorradores((prev) => ({
       ...prev,
       [id]: { ...prev[id], [campo]: valor },
+    }));
+  };
+
+  const cambiarDescuentoAdicional = (id, indice, valor) => {
+    setBorradores((prev) => ({
+      ...prev,
+      [id]: {
+        ...prev[id],
+        descuentosAdicionalesMm: prev[id].descuentosAdicionalesMm.map((descuento, i) =>
+          i === indice ? valor : descuento,
+        ),
+      },
+    }));
+  };
+
+  const agregarDescuentoAdicional = (id) => {
+    setBorradores((prev) => ({
+      ...prev,
+      [id]: {
+        ...prev[id],
+        descuentosAdicionalesMm: [...prev[id].descuentosAdicionalesMm, '0'],
+      },
+    }));
+  };
+
+  const quitarDescuentoAdicional = (id, indice) => {
+    setBorradores((prev) => ({
+      ...prev,
+      [id]: {
+        ...prev[id],
+        descuentosAdicionalesMm: prev[id].descuentosAdicionalesMm.filter((_, i) => i !== indice),
+      },
     }));
   };
 
@@ -125,7 +143,6 @@ export default function DescuentosSistema({
         const esPerfil = linea.tipo_pieza === 'perfil';
         return {
           ...linea,
-          cantidad_requerida: Math.max(0.01, numero(borrador.cantidad, 1)),
           descuento_mm: Math.max(0, numero(borrador.descuentoMm, 0)),
           merma_porcentaje: Math.max(0, numero(borrador.merma, 0)),
           formula_largo: esPerfil ? borrador.base : 'fijo',
@@ -138,6 +155,13 @@ export default function DescuentosSistema({
                 ? String(borrador.referencia || '').trim()
                 : '',
             angulo: esPerfil ? Math.max(0, numero(borrador.angulo, 0)) : 0,
+            ladoAngulo:
+              esPerfil && numero(borrador.angulo, 0) > 0 ? borrador.ladoAngulo || '' : '',
+            descuentosAdicionalesMm: esPerfil
+              ? borrador.descuentosAdicionalesMm.map((descuento) =>
+                  Math.max(0, numero(descuento, 0)),
+                )
+              : [],
           },
         };
       }),
@@ -152,6 +176,10 @@ export default function DescuentosSistema({
       ...sistema,
       descuento_vidrio_ancho_mm: Math.max(0, numero(descuentoVidrioAncho, 30)),
       descuento_vidrio_alto_mm: Math.max(0, numero(descuentoVidrioAlto, 30)),
+      descuento_perfil_ancho_mm: Math.max(0, numero(descuentoPerfilAncho, 0)),
+      descuento_perfil_alto_mm: Math.max(0, numero(descuentoPerfilAlto, 0)),
+      largo_barra_cm: Math.max(1, numero(largoBarra, LARGO_BARRA_DEFECTO_CM)),
+      merma_porcentaje: Math.max(0, numero(mermaGeneral, 5)),
       materiales: recetaConBorradores.map((linea) => ({
         ...linea,
         material: linea.material,
@@ -174,16 +202,27 @@ export default function DescuentosSistema({
       [sistemaPreview],
       {
         retales: [],
-        largoBarraCm: sistema.largo_barra_cm || LARGO_BARRA_DEFECTO_CM,
+        largoBarraCm: Math.max(1, numero(largoBarra, LARGO_BARRA_DEFECTO_CM)),
       },
     );
-  }, [sistema, recetaConBorradores, descuentoVidrioAncho, descuentoVidrioAlto, anchoMuestra, altoMuestra]);
+  }, [
+    sistema,
+    recetaConBorradores,
+    descuentoVidrioAncho,
+    descuentoVidrioAlto,
+    descuentoPerfilAncho,
+    descuentoPerfilAlto,
+    largoBarra,
+    mermaGeneral,
+    anchoMuestra,
+    altoMuestra,
+  ]);
 
   const itemPreview = despiece?.items?.[0] || null;
 
   const resultadoDe = (linea, indice) => {
     const tipo = linea.tipo_pieza;
-    const materialId = linea.material?.id || linea.material_id;
+    const materialId = linea.material?.id || linea.material_id || linea.id;
 
     if (tipo === 'perfil') {
       const corte = (itemPreview?.cortes || []).find((c) => c.lineKey === `0-${indice}`);
@@ -200,31 +239,54 @@ export default function DescuentosSistema({
     }
 
     const accesorio = (itemPreview?.accesorios || []).find((a) => a.materialId === materialId);
-    const cantidad = accesorio?.cantidad ?? numero(borradores[linea.id]?.cantidad, 1);
-    return `${cantidad} ${linea.material?.unidad_medida || ''}`.trim();
+    const cantidad = accesorio?.cantidad ?? numero(linea.cantidad_requerida, 1);
+    const unidad =
+      linea.material?.unidad_medida ||
+      (tipo === 'perfil'
+        ? 'Metro lineal (m)'
+        : tipo === 'vidrio'
+          ? 'Metro cuadrado (m²)'
+          : 'Unidad');
+    return `${cantidad} ${unidad}`.trim();
   };
 
-  const guardarVidrio = async () => {
+  const guardarConfiguracion = async () => {
     if (!puedeEditar || !sistema) return;
-    setGuardandoVidrio(true);
+    const cambios = {
+      descuento_vidrio_ancho_mm: Math.max(0, numero(descuentoVidrioAncho, 30)),
+      descuento_vidrio_alto_mm: Math.max(0, numero(descuentoVidrioAlto, 30)),
+      descuento_perfil_ancho_mm: Math.max(0, numero(descuentoPerfilAncho, 0)),
+      descuento_perfil_alto_mm: Math.max(0, numero(descuentoPerfilAlto, 0)),
+      largo_barra_cm: Math.max(1, numero(largoBarra, LARGO_BARRA_DEFECTO_CM)),
+      merma_porcentaje: Math.max(0, numero(mermaGeneral, 5)),
+    };
+    setGuardandoConfiguracion(true);
     try {
-      const { error: errorUpdate } = await supabase
-        .from('sistemas_trabajo')
-        .update({
-          descuento_vidrio_ancho_mm: Math.max(0, numero(descuentoVidrioAncho, 30)),
-          descuento_vidrio_alto_mm: Math.max(0, numero(descuentoVidrioAlto, 30)),
-        })
-        .eq('id', sistema.id);
-      if (errorUpdate) throw errorUpdate;
-      mostrar?.('Descuento de vidrio guardado', 'Se aplicará a todos los vidrios del sistema.', 'exito');
-      onSistemaActualizado?.({
-        descuento_vidrio_ancho_mm: Math.max(0, numero(descuentoVidrioAncho, 30)),
-        descuento_vidrio_alto_mm: Math.max(0, numero(descuentoVidrioAlto, 30)),
-      });
+      const actualizar = (datos) =>
+        supabase
+          .from('sistemas_trabajo')
+          .update(datos)
+          .eq('id', sistema.id);
+      let respuesta = await actualizar(cambios);
+      if (respuesta.error && /largo_barra_cm/i.test(respuesta.error.message || '')) {
+        respuesta = await actualizar(sinColumnas(cambios, ['largo_barra_cm']));
+        if (!respuesta.error) {
+          mostrar?.(
+            'Guardado parcial',
+            'Se guardaron los descuentos, pero el largo de barra requiere aplicar la migración 008 en Supabase.',
+            'error',
+          );
+          onSistemaActualizado?.(sinColumnas(cambios, ['largo_barra_cm']));
+          return;
+        }
+      }
+      if (respuesta.error) throw respuesta.error;
+      mostrar?.('Configuración guardada', 'Los descuentos y la fabricación se actualizaron.', 'exito');
+      onSistemaActualizado?.(cambios);
     } catch (err) {
       mostrar?.('No se pudo guardar', err.message);
     } finally {
-      setGuardandoVidrio(false);
+      setGuardandoConfiguracion(false);
     }
   };
 
@@ -237,7 +299,6 @@ export default function DescuentosSistema({
     try {
       const esPerfil = linea.tipo_pieza === 'perfil';
       const datos = {
-        cantidad_requerida: Math.max(0.01, numero(borrador.cantidad, 1)),
         descuento_mm: Math.max(0, numero(borrador.descuentoMm, 0)),
         merma_porcentaje: Math.max(0, numero(borrador.merma, 0)),
         formula_largo: esPerfil ? borrador.base : 'fijo',
@@ -250,6 +311,13 @@ export default function DescuentosSistema({
               ? String(borrador.referencia || '').trim()
               : '',
           angulo: esPerfil ? Math.max(0, numero(borrador.angulo, 0)) : 0,
+          ladoAngulo:
+            esPerfil && numero(borrador.angulo, 0) > 0 ? borrador.ladoAngulo || '' : '',
+          descuentosAdicionalesMm: esPerfil
+            ? borrador.descuentosAdicionalesMm.map((descuento) =>
+                Math.max(0, numero(descuento, 0)),
+              )
+            : [],
         },
         angulo_corte: esPerfil ? Math.max(0, numero(borrador.angulo, 0)) : 0,
       };
@@ -270,6 +338,7 @@ export default function DescuentosSistema({
         (numero(borrador.restarCm, 0) > 0 ||
           numero(borrador.dividir, 1) > 1 ||
           numero(borrador.angulo, 0) > 0 ||
+          borrador.descuentosAdicionalesMm.some((descuento) => numero(descuento, 0) > 0) ||
           (borrador.base === 'referencia' && Boolean(String(borrador.referencia || '').trim())));
 
       if (usoRespaldo && usaAvanzado) {
@@ -281,7 +350,7 @@ export default function DescuentosSistema({
       } else {
         mostrar?.(
           'Descuento guardado',
-          `${linea.material?.nombre || `Pieza ${indice + 1}`} actualizado.`,
+          `${linea.material?.nombre || linea.material_nombre || `Pieza ${indice + 1}`} actualizado.`,
           'exito',
         );
       }
@@ -295,9 +364,11 @@ export default function DescuentosSistema({
 
   const eliminarLinea = async (linea) => {
     if (!puedeEditar) return;
-    const confirmado = window.confirm(
-      `¿Quitar “${linea.material?.nombre || 'esta pieza'}” del sistema? También desaparecerá del despiece.`,
-    );
+    const confirmado = await confirmar({
+      titulo: 'Quitar material del sistema',
+      mensaje: `¿Quitar “${linea.material?.nombre || linea.material_nombre || 'esta pieza'}” del sistema? También desaparecerá del despiece.`,
+      confirmarTexto: 'Quitar material',
+    });
     if (!confirmado) return;
 
     try {
@@ -313,102 +384,15 @@ export default function DescuentosSistema({
     }
   };
 
-  const agregarLinea = async (evento) => {
-    evento.preventDefault();
-    if (!puedeEditar || !sistema) return;
-    if (!materialNuevo) {
-      mostrar?.('Selección requerida', 'Elige el material que llevará el sistema.');
-      return;
-    }
-
-    setAgregando(true);
-    try {
-      const esPerfil = nuevo.tipoPieza === 'perfil';
-      const datos = {
-        cantidad_requerida: Math.max(0.01, numero(nuevo.cantidad, 1)),
-        tipo_pieza: nuevo.tipoPieza,
-        formula_largo: esPerfil ? nuevo.base : 'fijo',
-        formula_config: {
-          base: esPerfil ? nuevo.base : 'fijo',
-          restarCm: esPerfil ? Math.max(0, numero(nuevo.restarCm, 0)) : 0,
-          dividir: esPerfil ? Math.max(1, numero(nuevo.dividir, 1) || 1) : 1,
-          referencia:
-            esPerfil && nuevo.base === 'referencia' ? String(nuevo.referencia || '').trim() : '',
-          angulo: esPerfil ? Math.max(0, numero(nuevo.angulo, 0)) : 0,
-        },
-        angulo_corte: esPerfil ? Math.max(0, numero(nuevo.angulo, 0)) : 0,
-        descuento_mm: Math.max(0, numero(nuevo.descuentoMm, 0)),
-        merma_porcentaje: Math.max(0, numero(nuevo.merma, 0)),
-        es_vidrio: nuevo.tipoPieza === 'vidrio',
-      };
-
-      const siguienteOrden =
-        materiales.reduce((maximo, linea) => Math.max(maximo, Number(linea.orden) || 0), 0) + 1;
-
-      const insertar = (payload) =>
-        supabase.from('sistema_materiales').insert([
-          {
-            id: nuevoId(),
-            sistema_id: sistema.id,
-            material_id: materialNuevo.id,
-            orden: siguienteOrden,
-            ...payload,
-          },
-        ]);
-
-      let respuesta = await insertar(datos);
-      let usoRespaldo = false;
-      if (respuesta.error && /formula_config|angulo_corte/i.test(respuesta.error.message || '')) {
-        usoRespaldo = true;
-        respuesta = await insertar(sinColumnas(datos, ['formula_config', 'angulo_corte']));
-      }
-      if (respuesta.error) throw respuesta.error;
-
-      const usaAvanzado =
-        esPerfil &&
-        (numero(nuevo.restarCm, 0) > 0 ||
-          numero(nuevo.dividir, 1) > 1 ||
-          numero(nuevo.angulo, 0) > 0 ||
-          (nuevo.base === 'referencia' && Boolean(String(nuevo.referencia || '').trim())));
-
-      if (usoRespaldo && usaAvanzado) {
-        mostrar?.(
-          'Guardado parcial',
-          'La pieza se agregó con cantidad, base, descuento y merma. Para guardar restar cm, dividir, ángulo y referencia aplica la migración 008 en Supabase.',
-          'error',
-        );
-      } else {
-        mostrar?.(
-          'Pieza agregada',
-          `${materialNuevo.nombre} quedó en la receta con su descuento.`,
-          'exito',
-        );
-      }
-      setNuevo(FORM_NUEVO_VACIO);
-      await onRecargarMateriales?.();
-    } catch (err) {
-      mostrar?.('No se pudo agregar', err.message);
-    } finally {
-      setAgregando(false);
-    }
-  };
-
-  const elegirMaterialNuevo = (materialId) => {
-    const material = inventario.find((item) => item.id === materialId) || null;
-    const tipoPieza = material ? inferirTipoPieza(material) : 'perfil';
-    setNuevo((prev) => ({
-      ...prev,
-      materialId,
-      tipoPieza,
-      base: tipoPieza === 'perfil' ? prev.base || 'ancho' : 'fijo',
-    }));
-  };
-
   const referenciasDisponibles = useMemo(
     () =>
       materiales
-        .filter((linea) => linea.tipo_pieza === 'perfil' && linea.material?.nombre)
-        .map((linea) => linea.material.nombre),
+        .filter(
+          (linea) =>
+            linea.tipo_pieza === 'perfil' &&
+            (linea.material?.nombre || linea.material_nombre),
+        )
+        .map((linea) => linea.material?.nombre || linea.material_nombre),
     [materiales],
   );
 
@@ -418,7 +402,7 @@ export default function DescuentosSistema({
       onClose={onClose}
       icono={<Calculator size={20} />}
       titulo={sistema ? `Descuentos · ${sistema.nombre}` : 'Descuentos del sistema'}
-      subtitulo="Crea, edita o elimina los descuentos de cada pieza y mira el despiece al instante."
+      subtitulo="Configura descuentos generales y por pieza, y consulta el despiece en tiempo real."
       ancho="max-w-5xl"
     >
       {!puedeEditar && (
@@ -442,30 +426,31 @@ export default function DescuentosSistema({
         </div>
       )}
 
-      {/* Descuento general del vidrio */}
+      {/* Descuentos generales y fabricación */}
       <section className="space-y-2 rounded-2xl border border-slate-800 bg-slate-950 p-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
             <p className="text-[11px] font-bold uppercase tracking-wider text-sky-400">
-              Descuento del vidrio
+              Descuentos generales y fabricación
             </p>
             <p className="text-[10px] text-slate-500">
-              Se resta al ancho y al alto de cada vidrio de este sistema.
+              Configuración base de todos los materiales de este sistema. Los descuentos por pieza
+              se ajustan más abajo.
             </p>
           </div>
           <button
             type="button"
-            onClick={guardarVidrio}
-            disabled={!puedeEditar || guardandoVidrio}
+            onClick={guardarConfiguracion}
+            disabled={!puedeEditar || guardandoConfiguracion}
             className="inline-flex items-center gap-1.5 rounded-lg bg-sky-600 px-3 py-1.5 text-[10px] font-bold text-white transition-colors hover:bg-sky-500 disabled:opacity-50"
           >
-            <Save size={13} /> {guardandoVidrio ? 'Guardando…' : 'Guardar vidrio'}
+            <Save size={13} /> {guardandoConfiguracion ? 'Guardando…' : 'Guardar configuración'}
           </button>
         </div>
-        <div className="grid max-w-md grid-cols-2 gap-2">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
           <div>
             <label htmlFor="desc-vidrio-ancho" className={CLASE_ETIQUETA}>
-              Ancho (mm)
+              Vidrio · ancho (mm)
             </label>
             <input
               id="desc-vidrio-ancho"
@@ -480,7 +465,7 @@ export default function DescuentosSistema({
           </div>
           <div>
             <label htmlFor="desc-vidrio-alto" className={CLASE_ETIQUETA}>
-              Alto (mm)
+              Vidrio · alto (mm)
             </label>
             <input
               id="desc-vidrio-alto"
@@ -489,6 +474,66 @@ export default function DescuentosSistema({
               step="0.1"
               value={descuentoVidrioAlto}
               onChange={(evento) => setDescuentoVidrioAlto(evento.target.value)}
+              disabled={!puedeEditar}
+              className={CLASE_INPUT}
+            />
+          </div>
+          <div>
+            <label htmlFor="desc-perfil-ancho" className={CLASE_ETIQUETA}>
+              Perfil · ancho (mm)
+            </label>
+            <input
+              id="desc-perfil-ancho"
+              type="number"
+              min="0"
+              step="0.1"
+              value={descuentoPerfilAncho}
+              onChange={(evento) => setDescuentoPerfilAncho(evento.target.value)}
+              disabled={!puedeEditar}
+              className={CLASE_INPUT}
+            />
+          </div>
+          <div>
+            <label htmlFor="desc-perfil-alto" className={CLASE_ETIQUETA}>
+              Perfil · alto (mm)
+            </label>
+            <input
+              id="desc-perfil-alto"
+              type="number"
+              min="0"
+              step="0.1"
+              value={descuentoPerfilAlto}
+              onChange={(evento) => setDescuentoPerfilAlto(evento.target.value)}
+              disabled={!puedeEditar}
+              className={CLASE_INPUT}
+            />
+          </div>
+          <div>
+            <label htmlFor="largo-barra" className={CLASE_ETIQUETA}>
+              Largo de barra (cm)
+            </label>
+            <input
+              id="largo-barra"
+              type="number"
+              min="1"
+              step="0.1"
+              value={largoBarra}
+              onChange={(evento) => setLargoBarra(evento.target.value)}
+              disabled={!puedeEditar}
+              className={CLASE_INPUT}
+            />
+          </div>
+          <div>
+            <label htmlFor="merma-sistema" className={CLASE_ETIQUETA}>
+              Merma general (%)
+            </label>
+            <input
+              id="merma-sistema"
+              type="number"
+              min="0"
+              step="0.1"
+              value={mermaGeneral}
+              onChange={(evento) => setMermaGeneral(evento.target.value)}
               disabled={!puedeEditar}
               className={CLASE_INPUT}
             />
@@ -556,8 +601,8 @@ export default function DescuentosSistema({
 
         {materiales.length === 0 ? (
           <p className="rounded-xl border border-dashed border-slate-700 p-4 text-center text-[11px] text-slate-500">
-            Este sistema todavía no tiene piezas. Agrega abajo los perfiles, vidrios y accesorios
-            que lleva.
+            Este sistema todavía no tiene materiales. Agrégalos desde el panel de materiales para
+            luego configurar aquí sus descuentos y fórmulas.
           </p>
         ) : (
           <div className="space-y-2">
@@ -574,7 +619,7 @@ export default function DescuentosSistema({
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <div className="min-w-0">
                       <p className="truncate text-xs font-bold text-white">
-                        {linea.material?.nombre || 'Material eliminado'}
+                        {linea.material?.nombre || linea.material_nombre || 'Material eliminado'}
                       </p>
                       <p className="font-mono text-[10px] text-slate-500">
                         Ref: {linea.material?.codigo_referencia || 'N/A'} ·{' '}
@@ -589,25 +634,7 @@ export default function DescuentosSistema({
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4 lg:grid-cols-7">
-                    <div>
-                      <label className={CLASE_ETIQUETA} htmlFor={`cantidad-${linea.id}`}>
-                        Piezas
-                      </label>
-                      <input
-                        id={`cantidad-${linea.id}`}
-                        type="number"
-                        min="0.01"
-                        step="0.01"
-                        value={borrador.cantidad}
-                        onChange={(evento) =>
-                          cambiarBorrador(linea.id, 'cantidad', evento.target.value)
-                        }
-                        disabled={!puedeEditar}
-                        className={CLASE_INPUT}
-                      />
-                    </div>
-
+                  <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4 lg:grid-cols-6">
                     {esPerfil && (
                       <>
                         <div>
@@ -681,6 +708,24 @@ export default function DescuentosSistema({
                             className={CLASE_INPUT}
                           />
                         </div>
+                        <div>
+                          <label className={CLASE_ETIQUETA} htmlFor={`lado-angulo-${linea.id}`}>
+                            Extremo del ángulo
+                          </label>
+                          <select
+                            id={`lado-angulo-${linea.id}`}
+                            value={borrador.ladoAngulo}
+                            onChange={(evento) =>
+                              cambiarBorrador(linea.id, 'ladoAngulo', evento.target.value)
+                            }
+                            disabled={!puedeEditar || numero(borrador.angulo, 0) <= 0}
+                            className={CLASE_INPUT}
+                          >
+                            <option value="">Sin especificar</option>
+                            <option value="sillar">Lado del sillar</option>
+                            <option value="cabezal">Lado del cabezal</option>
+                          </select>
+                        </div>
                         <div className="col-span-2">
                           <label className={CLASE_ETIQUETA} htmlFor={`referencia-${linea.id}`}>
                             Pieza de referencia
@@ -696,7 +741,10 @@ export default function DescuentosSistema({
                           >
                             <option value="">Sin referencia</option>
                             {referenciasDisponibles
-                              .filter((nombre) => nombre !== linea.material?.nombre)
+                              .filter(
+                                (nombre) =>
+                                  nombre !== (linea.material?.nombre || linea.material_nombre),
+                              )
                               .map((nombre) => (
                                 <option key={nombre} value={nombre}>
                                   {nombre}
@@ -709,7 +757,7 @@ export default function DescuentosSistema({
 
                     <div>
                       <label className={CLASE_ETIQUETA} htmlFor={`descuento-${linea.id}`}>
-                        Descuento (mm)
+                        Descuento principal (mm)
                       </label>
                       <input
                         id={`descuento-${linea.id}`}
@@ -742,6 +790,70 @@ export default function DescuentosSistema({
                       />
                     </div>
                   </div>
+
+                  {esPerfil && (
+                    <div className="space-y-2 rounded-xl border border-slate-800 bg-slate-900/50 p-2.5">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <p className="text-[10px] font-semibold text-slate-300">
+                            Descuentos adicionales (mm)
+                          </p>
+                          <p className="text-[9px] text-slate-500">
+                            Se suman al descuento principal y se aplican juntos al largo de corte.
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => agregarDescuentoAdicional(linea.id)}
+                          disabled={!puedeEditar}
+                          className="inline-flex items-center gap-1 rounded-lg border border-blue-500/30 bg-blue-500/10 px-2.5 py-1.5 text-[10px] font-bold text-blue-300 transition-colors hover:bg-blue-500/20 disabled:opacity-40"
+                        >
+                          <Plus size={12} /> Agregar otro descuento
+                        </button>
+                      </div>
+                      {borrador.descuentosAdicionalesMm.map((descuento, descuentoIndice) => (
+                        <div
+                          key={`${linea.id}-descuento-adicional-${descuentoIndice}`}
+                          className="flex max-w-sm items-end gap-2"
+                        >
+                          <div className="flex-1">
+                            <label
+                              className={CLASE_ETIQUETA}
+                              htmlFor={`descuento-adicional-${linea.id}-${descuentoIndice}`}
+                            >
+                              Descuento adicional {descuentoIndice + 1} (mm)
+                            </label>
+                            <input
+                              id={`descuento-adicional-${linea.id}-${descuentoIndice}`}
+                              type="number"
+                              min="0"
+                              step="0.1"
+                              value={descuento}
+                              onChange={(evento) =>
+                                cambiarDescuentoAdicional(
+                                  linea.id,
+                                  descuentoIndice,
+                                  evento.target.value,
+                                )
+                              }
+                              disabled={!puedeEditar}
+                              className={CLASE_INPUT}
+                            />
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => quitarDescuentoAdicional(linea.id, descuentoIndice)}
+                            disabled={!puedeEditar}
+                            aria-label={`Quitar descuento adicional ${descuentoIndice + 1}`}
+                            title="Quitar descuento"
+                            className="inline-flex h-8 w-9 items-center justify-center rounded-lg border border-red-500/25 text-red-400 transition-colors hover:bg-red-500/10 disabled:opacity-40"
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
 
                   {!esPerfil && (
                     <p className="text-[10px] text-slate-500">
@@ -778,216 +890,18 @@ export default function DescuentosSistema({
         )}
       </section>
 
-      {/* Agregar pieza con descuento */}
-      {puedeEditar && (
-        <section className="space-y-2 rounded-2xl border border-slate-800 bg-slate-950 p-3">
-          <p className="text-[11px] font-bold uppercase tracking-wider text-amber-400">
-            Agregar pieza al sistema
-          </p>
-          <p className="text-[10px] text-slate-500">
-            Elige un perfil, vidrio, accesorio o empaque del inventario y define cuántas piezas
-            lleva y cómo se descuenta al cortar.
-          </p>
-
-          <form onSubmit={agregarLinea} className="space-y-2">
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-              <div className="col-span-2">
-                <label className={CLASE_ETIQUETA} htmlFor="nuevo-material">
-                  Material del inventario
-                </label>
-                <select
-                  id="nuevo-material"
-                  value={nuevo.materialId}
-                  onChange={(evento) => elegirMaterialNuevo(evento.target.value)}
-                  className={CLASE_INPUT}
-                >
-                  <option value="">Selecciona un material…</option>
-                  {inventario.map((material) => (
-                    <option key={material.id} value={material.id}>
-                      {material.nombre} · {material.unidad_medida}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className={CLASE_ETIQUETA} htmlFor="nuevo-tipo">
-                  Tipo de pieza
-                </label>
-                <select
-                  id="nuevo-tipo"
-                  value={nuevo.tipoPieza}
-                  onChange={(evento) =>
-                    setNuevo((prev) => ({
-                      ...prev,
-                      tipoPieza: evento.target.value,
-                      base: evento.target.value === 'perfil' ? prev.base || 'ancho' : 'fijo',
-                    }))
-                  }
-                  className={CLASE_INPUT}
-                >
-                  {TIPOS_PIEZA.map((tipo) => (
-                    <option key={tipo.valor} value={tipo.valor}>
-                      {tipo.etiqueta}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className={CLASE_ETIQUETA} htmlFor="nuevo-cantidad">
-                  Cantidad
-                </label>
-                <input
-                  id="nuevo-cantidad"
-                  type="number"
-                  min="0.01"
-                  step="0.01"
-                  value={nuevo.cantidad}
-                  onChange={(evento) =>
-                    setNuevo((prev) => ({ ...prev, cantidad: evento.target.value }))
-                  }
-                  className={CLASE_INPUT}
-                />
-              </div>
-            </div>
-
-            {nuevo.tipoPieza === 'perfil' && (
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
-                <div>
-                  <label className={CLASE_ETIQUETA} htmlFor="nuevo-base">
-                    Base
-                  </label>
-                  <select
-                    id="nuevo-base"
-                    value={nuevo.base}
-                    onChange={(evento) =>
-                      setNuevo((prev) => ({ ...prev, base: evento.target.value }))
-                    }
-                    className={CLASE_INPUT}
-                  >
-                    {FORMULAS_CORTE.map((formula) => (
-                      <option key={formula.valor} value={formula.valor}>
-                        {formula.etiqueta}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className={CLASE_ETIQUETA} htmlFor="nuevo-restar">
-                    Restar (cm)
-                  </label>
-                  <input
-                    id="nuevo-restar"
-                    type="number"
-                    min="0"
-                    step="0.1"
-                    value={nuevo.restarCm}
-                    onChange={(evento) =>
-                      setNuevo((prev) => ({ ...prev, restarCm: evento.target.value }))
-                    }
-                    className={CLASE_INPUT}
-                  />
-                </div>
-                <div>
-                  <label className={CLASE_ETIQUETA} htmlFor="nuevo-dividir">
-                    Dividir entre
-                  </label>
-                  <input
-                    id="nuevo-dividir"
-                    type="number"
-                    min="1"
-                    step="1"
-                    value={nuevo.dividir}
-                    onChange={(evento) =>
-                      setNuevo((prev) => ({ ...prev, dividir: evento.target.value }))
-                    }
-                    className={CLASE_INPUT}
-                  />
-                </div>
-                <div>
-                  <label className={CLASE_ETIQUETA} htmlFor="nuevo-angulo">
-                    Ángulo (°)
-                  </label>
-                  <input
-                    id="nuevo-angulo"
-                    type="number"
-                    min="0"
-                    step="0.1"
-                    value={nuevo.angulo}
-                    onChange={(evento) =>
-                      setNuevo((prev) => ({ ...prev, angulo: evento.target.value }))
-                    }
-                    className={CLASE_INPUT}
-                  />
-                </div>
-                <div className="col-span-2">
-                  <label className={CLASE_ETIQUETA} htmlFor="nuevo-referencia">
-                    Pieza de referencia
-                  </label>
-                  <select
-                    id="nuevo-referencia"
-                    value={nuevo.referencia}
-                    onChange={(evento) =>
-                      setNuevo((prev) => ({ ...prev, referencia: evento.target.value }))
-                    }
-                    disabled={nuevo.base !== 'referencia'}
-                    className={CLASE_INPUT}
-                  >
-                    <option value="">Sin referencia</option>
-                    {referenciasDisponibles.map((nombre) => (
-                      <option key={nombre} value={nombre}>
-                        {nombre}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-            )}
-
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-              <div>
-                <label className={CLASE_ETIQUETA} htmlFor="nuevo-descuento">
-                  Descuento (mm)
-                </label>
-                <input
-                  id="nuevo-descuento"
-                  type="number"
-                  min="0"
-                  step="0.1"
-                  value={nuevo.descuentoMm}
-                  onChange={(evento) =>
-                    setNuevo((prev) => ({ ...prev, descuentoMm: evento.target.value }))
-                  }
-                  className={CLASE_INPUT}
-                />
-              </div>
-              <div>
-                <label className={CLASE_ETIQUETA} htmlFor="nuevo-merma">
-                  Merma (%)
-                </label>
-                <input
-                  id="nuevo-merma"
-                  type="number"
-                  min="0"
-                  step="0.1"
-                  value={nuevo.merma}
-                  onChange={(evento) => setNuevo((prev) => ({ ...prev, merma: evento.target.value }))}
-                  className={CLASE_INPUT}
-                />
-              </div>
-              <div className="col-span-2 flex items-end justify-end">
-                <button
-                  type="submit"
-                  disabled={agregando || !nuevo.materialId}
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-amber-600 px-4 py-2 text-[11px] font-bold text-white transition-colors hover:bg-amber-500 disabled:opacity-50"
-                >
-                  <Plus size={14} /> {agregando ? 'Agregando…' : 'Agregar a la receta'}
-                </button>
-              </div>
-            </div>
-          </form>
-        </section>
-      )}
-
+      <section className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-800 bg-slate-950 p-3">
+        <p className="text-[10px] text-slate-400">
+          Para agregar o quitar perfiles, vidrios, accesorios y empaques, usa el panel de materiales.
+        </p>
+        <button
+          type="button"
+          onClick={onOpenMaterials}
+          className="rounded-lg bg-blue-600 px-3 py-1.5 text-[10px] font-bold text-white transition-colors hover:bg-blue-500"
+        >
+          Gestionar materiales y cantidades
+        </button>
+      </section>
       {/* Despiece resultante */}
       <section className="space-y-2">
         <p className="text-[11px] font-bold uppercase tracking-wider text-cyan-400">

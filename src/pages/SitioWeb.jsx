@@ -33,6 +33,7 @@ import {
 
 import Modal from '../components/Modal';
 import Toast from '../components/Toast';
+import useConfirm from '../hooks/useConfirm';
 import useToast from '../hooks/useToast';
 
 const PROYECTO_VACIO = {
@@ -155,6 +156,7 @@ export default function SitioWeb({ perfil }) {
   const [errorForm, setErrorForm] = useState('');
 
   const { alerta, mostrar, cerrar } = useToast();
+  const confirmar = useConfirm();
 
   const cargarTodo = useCallback(async () => {
     const [respuestaProyectos, respuestaLanding] = await Promise.all([
@@ -400,9 +402,11 @@ export default function SitioWeb({ perfil }) {
   };
 
   const eliminarProyecto = async (proyecto) => {
-    const confirmado = window.confirm(
-      `¿Eliminar el proyecto “${proyecto.titulo}”? También se borrarán sus fotos del portafolio.`,
-    );
+    const confirmado = await confirmar({
+      titulo: 'Eliminar proyecto',
+      mensaje: `¿Eliminar el proyecto “${proyecto.titulo}”? También se borrarán sus fotos del portafolio.`,
+      confirmarTexto: 'Eliminar proyecto',
+    });
     if (!confirmado) return;
 
     const { error: errorBorrado } = await supabase

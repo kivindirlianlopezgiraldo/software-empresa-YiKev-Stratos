@@ -18,6 +18,7 @@ import { formatCOP, formatMiles, nuevoId, parseCOP } from '../lib/format';
 import Toast from '../components/Toast';
 import Modal from '../components/Modal';
 import useToast from '../hooks/useToast';
+import useConfirm from '../hooks/useConfirm';
 
 const FORM_VACIO = {
   codigoReferencia: '',
@@ -46,6 +47,7 @@ export default function Inventario({ permisos }) {
   const [guardando, setGuardando] = useState(false);
 
   const { alerta, mostrar, cerrar } = useToast();
+  const confirmar = useConfirm();
   const puedeEditar = permisos ? permisos.puedeEditarInventario : true;
 
   const consultarInventario = useCallback(async () => {
@@ -161,7 +163,12 @@ export default function Inventario({ permisos }) {
   };
 
   const eliminarMaterial = async (material) => {
-    if (!window.confirm(`¿Deseas eliminar permanentemente el material "${material.nombre}"?`)) return;
+    const confirmado = await confirmar({
+      titulo: 'Eliminar material',
+      mensaje: `¿Deseas eliminar permanentemente el material "${material.nombre}"?`,
+      confirmarTexto: 'Eliminar material',
+    });
+    if (!confirmado) return;
 
     try {
       const { error: errorDelete } = await supabase

@@ -29,6 +29,7 @@ import { formatFechaHora, nuevoId } from '../lib/format';
 import Toast from '../components/Toast';
 import Modal from '../components/Modal';
 import useToast from '../hooks/useToast';
+import useConfirm from '../hooks/useConfirm';
 
 const FORM_HERRAMIENTA = {
   nombre: '',
@@ -173,6 +174,7 @@ export default function Herramientas({ perfil, permisos }) {
 
   const [guardando, setGuardando] = useState(false);
   const { alerta, mostrar, cerrar } = useToast();
+  const confirmar = useConfirm();
 
   const puedeAsignar = permisos?.puedeAsignarHerramientas;
   const puedeUsar = permisos?.puedeUsarChecklists;
@@ -388,7 +390,12 @@ export default function Herramientas({ perfil, permisos }) {
   };
 
   const eliminarHerramienta = async (herramienta) => {
-    if (!window.confirm(`¿Eliminar la herramienta "${herramienta.nombre}" del catálogo?`)) return;
+    const confirmado = await confirmar({
+      titulo: 'Eliminar herramienta',
+      mensaje: `¿Eliminar la herramienta "${herramienta.nombre}" del catálogo?`,
+      confirmarTexto: 'Eliminar herramienta',
+    });
+    if (!confirmado) return;
     try {
       const { error: errorDelete } = await supabase
         .from('herramientas')
@@ -730,7 +737,12 @@ export default function Herramientas({ perfil, permisos }) {
   };
 
   const eliminarKit = async (kit) => {
-    if (!window.confirm(`¿Eliminar el kit "${kit.nombre}"?`)) return;
+    const confirmado = await confirmar({
+      titulo: 'Eliminar kit',
+      mensaje: `¿Eliminar el kit "${kit.nombre}"?`,
+      confirmarTexto: 'Eliminar kit',
+    });
+    if (!confirmado) return;
     try {
       const { error } = await supabase.from('herramienta_kits').delete().eq('id', kit.id);
       if (error) throw error;
@@ -860,7 +872,12 @@ export default function Herramientas({ perfil, permisos }) {
   };
 
   const eliminarChecklist = async (plantilla) => {
-    if (!window.confirm(`¿Eliminar el checklist "${plantilla.nombre}"?`)) return;
+    const confirmado = await confirmar({
+      titulo: 'Eliminar checklist',
+      mensaje: `¿Eliminar el checklist "${plantilla.nombre}"?`,
+      confirmarTexto: 'Eliminar checklist',
+    });
+    if (!confirmado) return;
     try {
       const { error: errorDelete } = await supabase
         .from('herramienta_checklists')
@@ -1044,13 +1061,20 @@ export default function Herramientas({ perfil, permisos }) {
   const abrirActa = (lote) => {
     const orden = lote.orden_id ? ordenPorId.get(lote.orden_id) : null;
     const colaborador = colaboradores.find((c) => c.id === lote.colaborador_id) || null;
-    imprimirActaHerramientas({
+    const abierta = imprimirActaHerramientas({
       empresa,
       lote,
       orden,
       colaborador: colaborador || { nombre_completo: lote.colaborador_nombre },
       registradoPor: lote.registrado_por_nombre,
     });
+    if (!abierta) {
+      mostrar(
+        'Ventana emergente bloqueada',
+        'Permite las ventanas emergentes para abrir el acta de herramientas.',
+        'advertencia',
+      );
+    }
   };
 
   const TABS = [

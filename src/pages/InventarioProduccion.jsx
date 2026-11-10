@@ -27,6 +27,7 @@ import { LARGO_BARRA_DEFECTO_CM } from '../lib/despiece';
 import Toast from '../components/Toast';
 import Modal from '../components/Modal';
 import useToast from '../hooks/useToast';
+import useConfirm from '../hooks/useConfirm';
 
 const FORM_VACIO = () => ({
   nombre: '',
@@ -111,6 +112,7 @@ export default function InventarioProduccion({ perfil, permisos: permisosProp })
   const [guardandoRetal, setGuardandoRetal] = useState(false);
 
   const { alerta, mostrar, cerrar } = useToast();
+  const confirmar = useConfirm();
 
   const consultar = useCallback(async () => {
     const [resInsumos, resColaboradores, resRetales] = await Promise.all([
@@ -271,9 +273,12 @@ export default function InventarioProduccion({ perfil, permisos: permisosProp })
   };
 
   const eliminar = async (insumo) => {
-    if (!window.confirm(`¿Eliminar el insumo "${insumo.nombre}" del inventario de producción?`)) {
-      return;
-    }
+    const confirmado = await confirmar({
+      titulo: 'Eliminar insumo',
+      mensaje: `¿Eliminar el insumo "${insumo.nombre}" del inventario de producción?`,
+      confirmarTexto: 'Eliminar insumo',
+    });
+    if (!confirmado) return;
     try {
       const { error: errorDelete } = await supabase
         .from('inventario_produccion')
@@ -380,13 +385,12 @@ export default function InventarioProduccion({ perfil, permisos: permisosProp })
   };
 
   const eliminarRetal = async (retal) => {
-    if (
-      !window.confirm(
-        `¿Eliminar el retal "${retal.codigo || retal.material_nombre}"? Esta acción no se puede deshacer.`,
-      )
-    ) {
-      return;
-    }
+    const confirmado = await confirmar({
+      titulo: 'Eliminar retal',
+      mensaje: `¿Eliminar el retal "${retal.codigo || retal.material_nombre}"? Esta acción no se puede deshacer.`,
+      confirmarTexto: 'Eliminar retal',
+    });
+    if (!confirmado) return;
     try {
       const { error: errorDelete } = await supabase
         .from('retales_produccion')

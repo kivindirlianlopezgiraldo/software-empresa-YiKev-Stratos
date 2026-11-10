@@ -153,10 +153,10 @@ export const TIPOS_PIEZA = [
 
 // Cómo se calcula el largo de corte de una pieza a partir del vano.
 // Las fórmulas avanzadas de una línea se guardan en `formula_config`:
-//   { base, restarCm, dividir, referencia, angulo }
+//   { base, restarCm, dividir, referencia, angulo, ladoAngulo }
 // Ejemplos:
-//   jamba 50/20     -> { base: 'alto',  restarCm: 1.3, angulo: 5 }
-//   horizontal      -> { base: 'ancho', restarCm: 2.8, dividir: 4 }
+//   jamba 50/20     -> { base: 'alto',  restarCm: 1.3, angulo: 5, ladoAngulo: 'sillar' }
+//   horizontal 50/20 -> { base: 'ancho', restarCm: 2.8, dividir: 2 }
 //   barra toallera  -> { base: 'referencia', referencia: 'PV17 ancho', restarCm: 9 }
 export const FORMULAS_CORTE = [
   { valor: 'fijo', etiqueta: 'Cantidad fija (sin corte)' },
@@ -223,14 +223,16 @@ const normalizar = (rol) =>
 export function permisosDe(rol) {
   const r = normalizar(rol);
   const esAdmin = r.includes('admin') || r.includes('gerencia') || r.includes('super');
+  const esSuperAdmin = r === normalizar(ROLES.SUPER_ADMIN);
   const esJefe = r.includes('jefe');
   const esProduccion = r.includes('produccion') || r.includes('taller') || r.includes('vidriero');
   const esInstalador = r.includes('instalador');
-  const esBodega = r.includes('bodega') || r.includes('almacen');
+  const esBodega = r.includes('bodega') || r.includes('bodeguero') || r.includes('almacen');
 
   return {
     rol,
     esAdmin,
+    esSuperAdmin,
     esJefe,
     esProduccion,
     esInstalador,
@@ -245,6 +247,8 @@ export function permisosDe(rol) {
     puedeEditarInventario: esAdmin || esJefe || esBodega,
     // Ver y editar sistemas de trabajo
     puedeVerSistemas: esAdmin || esJefe || esProduccion || esInstalador,
+    // Calcular cortes de una medida sin crear una orden
+    puedeCalcularDespiece: esAdmin || esJefe || esProduccion,
     // Crear / modificar sistemas y sus recetas: solo super admin y jefe de taller
     puedeEditarSistemas: esAdmin || esJefe,
     // Aprobar cotizaciones
@@ -281,7 +285,7 @@ export function categoriaRol(rol) {
   if (r.includes('jefe')) return 'jefe';
   if (r.includes('produccion') || r.includes('taller') || r.includes('vidriero')) return 'produccion';
   if (r.includes('instalador')) return 'instalador';
-  if (r.includes('bodega') || r.includes('almacen')) return 'bodega';
+  if (r.includes('bodega') || r.includes('bodeguero') || r.includes('almacen')) return 'bodega';
   return 'otro';
 }
 

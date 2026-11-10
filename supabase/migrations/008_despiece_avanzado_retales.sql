@@ -121,7 +121,7 @@ begin
        descuento_vidrio_ancho_mm, descuento_vidrio_alto_mm, merma_porcentaje)
     values
       ('Sistema 50/20', 'Línea 50/20', 'corrediza',
-       'Ventana corrediza 50/20. Sillar y cabezal al ancho total; jamba alto −1.3 cm con corte a 5°; tope y enganche alto −3 cm; horizontal (ancho −2.8 cm) ÷ 4.',
+       'Ventana corrediza 50/20. Marco: 2 jambas, 1 sillar y 1 cabezal. Nave: 2 topes, 2 enganches y 2 horizontales. Accesorios: 1 seguro y 4 rodachinas. Jamba alto −1.3 cm con corte a 5° en el lado del sillar; sillar y cabezal al ancho total; tope y enganche alto −3 cm; cada horizontal (ancho −2.8 cm) ÷ 2.',
        595, 30, 30, 5)
     returning id into v_sistema;
   end if;
@@ -134,7 +134,7 @@ begin
       ('Jamba 50/20',       'perfil',    'alto',       1.3, 1, 2, 5, 3, ''),
       ('Tope 50/20',        'perfil',    'alto',       3,   1, 2, 0, 4, ''),
       ('Enganche 50/20',    'perfil',    'alto',       3,   1, 2, 0, 5, ''),
-      ('Horizontal 50/20',  'perfil',    'ancho',      2.8, 4, 4, 0, 6, ''),
+      ('Horizontal 50/20',  'perfil',    'ancho',      2.8, 2, 2, 0, 6, ''),
       ('Seguro 50/20',      'accesorio', 'fijo',       0,   1, 1, 0, 7, ''),
       ('Rodachina 50/20',   'accesorio', 'fijo',       0,   1, 4, 0, 8, '')
     ) as t(nombre, tipo, base, restar_cm, dividir, cantidad, angulo, orden, referencia)
@@ -172,8 +172,9 @@ begin
          'restarCm', rec.restar_cm,
          'dividir', rec.dividir,
          'referencia', rec.referencia,
-         'angulo', rec.angulo
-       ),
+          'angulo', rec.angulo,
+          'ladoAngulo', case when rec.nombre = 'Jamba 50/20' then 'sillar' else '' end
+        ),
        rec.angulo,
        case when rec.tipo = 'perfil' then 5 else 0 end,
        false,
@@ -248,7 +249,8 @@ begin
          'restarCm', rec.restar_cm,
          'dividir', rec.dividir,
          'referencia', rec.referencia,
-         'angulo', rec.angulo
+         'angulo', rec.angulo,
+         'ladoAngulo', ''
        ),
        rec.angulo,
        case when rec.tipo = 'perfil' then 5 else 0 end,

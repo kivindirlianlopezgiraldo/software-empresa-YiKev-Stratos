@@ -15,13 +15,10 @@ import {
 import { supabase } from '../lib/supabase';
 import {
   FORMULAS_CORTE,
-  LINEAS_SISTEMA,
   TIPOS_PIEZA,
-  TIPOS_SISTEMA,
 } from '../lib/constants';
 import { formatCOP, nuevoId } from '../lib/format';
 import {
-  LARGO_BARRA_DEFECTO_CM,
   configuracionFormula,
   describirFormula,
   etiquetaTipoPieza,
@@ -33,6 +30,7 @@ import Modal from '../components/Modal';
 import DespiecePanel from '../components/DespiecePanel';
 import DescuentosSistema from '../components/DescuentosSistema';
 import useToast from '../hooks/useToast';
+import useConfirm from '../hooks/useConfirm';
 
 // Copia el objeto sin las columnas indicadas (para bases sin la migración 008).
 const sinColumnas = (datos, columnas) => {
@@ -45,18 +43,12 @@ const sinColumnas = (datos, columnas) => {
 
 const FORM_SISTEMA_VACIO = {
   nombre: '',
-  linea: LINEAS_SISTEMA[0],
   tipo: 'corrediza',
   descripcion: '',
-  largoBarra: String(LARGO_BARRA_DEFECTO_CM),
-  descuentoVidrioAncho: '30',
-  descuentoVidrioAlto: '30',
-  descuentoPerfilAncho: '0',
-  descuentoPerfilAlto: '0',
-  merma: '5',
 };
 
-const FORM_MATERIAL_VACIO = {  cantidad: '1',
+const FORM_MATERIAL_VACIO = {
+  cantidad: '1',
   tipoPieza: 'perfil',
   formula: 'perimetro',
   descuento: '0',
@@ -65,7 +57,140 @@ const FORM_MATERIAL_VACIO = {  cantidad: '1',
   dividir: '1',
   referencia: '',
   angulo: '0',
+  ladoAngulo: '',
 };
+
+const nuevaFilaMaterial = () => ({
+  id: nuevoId(),
+  nombre: '',
+  cantidad: '1',
+  tipoPieza: 'perfil',
+});
+
+const prepararMaterialesSistema = (filas, inventario) =>
+  filas
+    .filter((fila) => fila.nombre.trim())
+    .map((fila) => {
+      const cantidad = Number(String(fila.cantidad).replace(',', '.'));
+      if (!Number.isFinite(cantidad) || cantidad <= 0) {
+        throw new Error('Cada material escrito debe tener una cantidad mayor que cero.');
+      }
+
+      const nombre = fila.nombre.trim();
+      const materialExistente = inventario.find(
+        (item) => item.nombre?.trim().toLocaleLowerCase() === nombre.toLocaleLowerCase(),
+      );
+      const tipo = fila.tipoPieza || 'accesorio';
+      return {
+        id: nuevoId(),
+        material_id: materialExistente?.id || null,
+        material_nombre: nombre,
+        cantidad_requerida: cantidad,
+        tipo_pieza: tipo,
+        formula_largo: tipo === 'perfil' ? 'perimetro' : 'fijo',
+        descuento_mm: 0,
+        merma_porcentaje: 0,
+        es_vidrio: tipo === 'vidrio',
+      };
+    });
+
+const mensajeErrorMaterialManual = (error) => {
+  const mensaje = String(error?.message || error || 'Error desconocido');
+  if (/material_nombre|material_id/i.test(mensaje)) {
+    return `${mensaje} Para guardar nombres escritos manualmente, ejecuta la migración 010_materiales_manuales_receta.sql en Supabase.`;
+  }
+  return mensaje;
+};
+
+function EditorFilasMateriales({ filas, inventario, onCambiar, onAgregar, onQuitar }) {
+  return (
+    <div className="space-y-2">
+      {filas.map((fila, indice) => (
+        <div
+          key={fila.id}
+          className="grid grid-cols-1 items-end gap-2 rounded-xl border border-slate-800 bg-slate-900/60 p-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_40px]"
+        >
+          <div className="sm:col-span-3">
+            <label
+              htmlFor={`fila-nombre-${fila.id}`}
+              className="mb-1 block text-[10px] font-semibold text-slate-400"
+            >
+              Nombre del material {indice + 1}
+            </label>
+            <input
+              id={`fila-nombre-${fila.id}`}
+              type="text"
+              list={`inventario-materiales-${fila.id}`}
+              autoComplete="off"
+              value={fila.nombre}
+              onChange={(evento) => onCambiar(fila.id, 'nombre', evento.target.value)}
+              placeholder="Escribe: jamba, sillar, rodachina..."
+              className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-xs text-white focus:border-blue-500 focus:outline-none"
+            />
+            <datalist id={`inventario-materiales-${fila.id}`}>
+              {inventario.map((material) => (
+                <option key={material.id} value={material.nombre} />
+              ))}
+            </datalist>
+          </div>
+          <div>
+            <label
+              htmlFor={`fila-tipo-${fila.id}`}
+              className="mb-1 block text-[10px] font-semibold text-slate-400"
+            >
+              Tipo
+            </label>
+            <select
+              id={`fila-tipo-${fila.id}`}
+              value={fila.tipoPieza}
+              onChange={(evento) => onCambiar(fila.id, 'tipoPieza', evento.target.value)}
+              className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-xs text-white focus:border-blue-500 focus:outline-none"
+            >
+              {TIPOS_PIEZA.map((tipo) => (
+                <option key={tipo.valor} value={tipo.valor}>
+                  {tipo.etiqueta}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label
+              htmlFor={`fila-cantidad-${fila.id}`}
+              className="mb-1 block text-[10px] font-semibold text-slate-400"
+            >
+              Cantidad
+            </label>
+            <input
+              id={`fila-cantidad-${fila.id}`}
+              type="number"
+              min="0.01"
+              step="0.01"
+              value={fila.cantidad}
+              onChange={(evento) => onCambiar(fila.id, 'cantidad', evento.target.value)}
+              className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-xs font-mono text-white focus:border-blue-500 focus:outline-none"
+            />
+          </div>
+          <button
+            type="button"
+            onClick={() => onQuitar(fila.id)}
+            aria-label={`Quitar fila ${indice + 1}`}
+            title="Quitar esta fila"
+            className="inline-flex h-9 items-center justify-center rounded-lg border border-red-500/20 text-red-400 hover:bg-red-500/10"
+          >
+            <Trash2 size={15} />
+          </button>
+        </div>
+      ))}
+      <button
+        type="button"
+        onClick={onAgregar}
+        className="inline-flex items-center gap-1.5 rounded-lg border border-blue-500/30 bg-blue-500/10 px-3 py-2 text-[10px] font-bold text-blue-300 hover:bg-blue-500/20"
+      >
+        <Plus size={14} /> Agregar otro material
+      </button>
+    </div>
+  );
+}
 
 export default function SistemasTrabajo({ permisos }) {
   const [sistemas, setSistemas] = useState([]);
@@ -85,9 +210,11 @@ export default function SistemasTrabajo({ permisos }) {
   const [sistemaSeleccionado, setSistemaSeleccionado] = useState(null);
   const [materialesDelSistema, setMaterialesDelSistema] = useState([]);
   const [cargandoMateriales, setCargandoMateriales] = useState(false);
+  const [filasMateriales, setFilasMateriales] = useState(() => [nuevaFilaMaterial()]);
 
   const [modalDescuentos, setModalDescuentos] = useState(false);
   const [sistemaDescuentos, setSistemaDescuentos] = useState(null);
+  const [sistemaDescuentosId, setSistemaDescuentosId] = useState('');
   const [soportaDespieceAvanzado, setSoportaDespieceAvanzado] = useState(true);
 
   const [textoBusquedaMaterial, setTextoBusquedaMaterial] = useState('');
@@ -102,25 +229,16 @@ export default function SistemasTrabajo({ permisos }) {
   const [dividir, setDividir] = useState(FORM_MATERIAL_VACIO.dividir);
   const [referencia, setReferencia] = useState(FORM_MATERIAL_VACIO.referencia);
   const [angulo, setAngulo] = useState(FORM_MATERIAL_VACIO.angulo);
+  const [ladoAngulo, setLadoAngulo] = useState(FORM_MATERIAL_VACIO.ladoAngulo);
   const [lineaEditando, setLineaEditando] = useState(null);
   const [verPreview, setVerPreview] = useState(false);
   const [agregandoMaterial, setAgregandoMaterial] = useState(false);
 
   const contenedorSugerencias = useRef(null);
   const { alerta, mostrar, cerrar } = useToast();
+  const confirmar = useConfirm();
 
   const puedeEditar = permisos ? permisos.puedeEditarSistemas : false;
-
-  // Conserva las líneas que ya existen en la base aunque no estén en el catálogo,
-  // para no cambiarlas en silencio al editar un sistema.
-  const opcionesLinea = useMemo(() => {
-    const valores = new Set(LINEAS_SISTEMA);
-    sistemas.forEach((sistema) => {
-      if (sistema.linea) valores.add(sistema.linea);
-    });
-    if (form.linea) valores.add(form.linea);
-    return [...valores];
-  }, [sistemas, form.linea]);
 
   const consultarDatos = useCallback(async () => {
     const [resSistemas, resInventario] = await Promise.all([
@@ -184,7 +302,7 @@ export default function SistemasTrabajo({ permisos }) {
         supabase
           .from('sistema_materiales')
           .select(
-            `id, cantidad_requerida, tipo_pieza, formula_largo, formula_config,
+            `id, material_nombre, cantidad_requerida, tipo_pieza, formula_largo, formula_config,
              angulo_corte, descuento_mm, merma_porcentaje, es_vidrio, orden,
              material:material_id (id, nombre, codigo_referencia, unidad_medida, precio_venta, categoria)`,
           )
@@ -193,6 +311,23 @@ export default function SistemasTrabajo({ permisos }) {
 
       let { data, error: errorConsulta } = await consultaCompleta();
       let usaRespaldo = false;
+
+      if (errorConsulta && /material_nombre/i.test(errorConsulta.message || '')) {
+        const respaldo = await supabase
+          .from('sistema_materiales')
+          .select(
+            `id, cantidad_requerida, tipo_pieza, formula_largo, formula_config,
+             angulo_corte, descuento_mm, merma_porcentaje, es_vidrio, orden,
+             material:material_id (id, nombre, codigo_referencia, unidad_medida, precio_venta, categoria)`,
+          )
+          .eq('sistema_id', sistemaId)
+          .order('orden', { ascending: true });
+        data = (respaldo.data ?? []).map((linea) => ({
+          ...linea,
+          material_nombre: linea.material?.nombre || null,
+        }));
+        errorConsulta = respaldo.error;
+      }
 
       // Si aún no se aplicó la migración 008, se consulta sin las columnas nuevas.
       if (errorConsulta && /formula_config|angulo_corte/i.test(errorConsulta.message || '')) {
@@ -206,7 +341,10 @@ export default function SistemasTrabajo({ permisos }) {
           )
           .eq('sistema_id', sistemaId)
           .order('orden', { ascending: true });
-        data = respaldo.data;
+        data = (respaldo.data ?? []).map((linea) => ({
+          ...linea,
+          material_nombre: linea.material?.nombre || null,
+        }));
         errorConsulta = respaldo.error;
       }
 
@@ -224,6 +362,7 @@ export default function SistemasTrabajo({ permisos }) {
     if (!puedeEditar) return;
     setSistemaEditando(null);
     setForm(FORM_SISTEMA_VACIO);
+    setFilasMateriales([nuevaFilaMaterial()]);
     setErrorForm('');
     setModalSistema(true);
   };
@@ -233,15 +372,8 @@ export default function SistemasTrabajo({ permisos }) {
     setSistemaEditando(sistema);
     setForm({
       nombre: sistema.nombre || '',
-      linea: sistema.linea || LINEAS_SISTEMA[0],
       tipo: sistema.tipo || 'corrediza',
       descripcion: sistema.descripcion || '',
-      largoBarra: String(sistema.largo_barra_cm ?? LARGO_BARRA_DEFECTO_CM),
-      descuentoVidrioAncho: String(sistema.descuento_vidrio_ancho_mm ?? 30),
-      descuentoVidrioAlto: String(sistema.descuento_vidrio_alto_mm ?? 30),
-      descuentoPerfilAncho: String(sistema.descuento_perfil_ancho_mm ?? 0),
-      descuentoPerfilAlto: String(sistema.descuento_perfil_alto_mm ?? 0),
-      merma: String(sistema.merma_porcentaje ?? 5),
     });
     setErrorForm('');
     setModalSistema(true);
@@ -251,7 +383,7 @@ export default function SistemasTrabajo({ permisos }) {
     evento.preventDefault();
     if (!puedeEditar) {
       setErrorForm(
-        'Solo el Super Admin y el Jefe de Taller pueden modificar sistemas, fórmulas y descuentos.',
+        'Solo el Super Admin y el Jefe de Taller pueden modificar sistemas y sus recetas.',
       );
       return;
     }
@@ -261,26 +393,16 @@ export default function SistemasTrabajo({ permisos }) {
     try {
       const nombre = form.nombre.trim();
       if (!nombre) throw new Error('El nombre del sistema es obligatorio.');
-
-      const numero = (valor, defecto = 0) => {
-        const n = Number(String(valor).replace(',', '.'));
-        return Number.isFinite(n) ? n : defecto;
-      };
+      const materialesIniciales = sistemaEditando
+        ? []
+        : prepararMaterialesSistema(filasMateriales, inventario);
 
       const payload = {
         nombre,
-        linea: form.linea,
         tipo: form.tipo,
         descripcion: form.descripcion.trim(),
-        largo_barra_cm: numero(form.largoBarra, LARGO_BARRA_DEFECTO_CM) || LARGO_BARRA_DEFECTO_CM,
-        descuento_vidrio_ancho_mm: numero(form.descuentoVidrioAncho, 30),
-        descuento_vidrio_alto_mm: numero(form.descuentoVidrioAlto, 30),
-        descuento_perfil_ancho_mm: numero(form.descuentoPerfilAncho, 0),
-        descuento_perfil_alto_mm: numero(form.descuentoPerfilAlto, 0),
-        merma_porcentaje: numero(form.merma, 5),
       };
 
-      // Fallback: si la migración 008 aún no está aplicada, guarda sin largo_barra_cm.
       const guardar = async (datos) => {
         if (sistemaEditando) {
           return supabase
@@ -295,28 +417,52 @@ export default function SistemasTrabajo({ permisos }) {
           .single();
       };
 
-      let respuesta = await guardar(payload);
-      if (respuesta.error && /largo_barra_cm/i.test(respuesta.error.message || '')) {
-        respuesta = await guardar(sinColumnas(payload, ['largo_barra_cm']));
-      }
+      const respuesta = await guardar(payload);
       if (respuesta.error) throw respuesta.error;
 
       const sistemaCreado = sistemaEditando ? null : respuesta.data;
+      let errorMateriales = null;
+      if (sistemaCreado && materialesIniciales.length > 0) {
+        const filasParaGuardar = materialesIniciales.map((material, indice) => ({
+            ...material,
+            sistema_id: sistemaCreado.id,
+            orden: indice + 1,
+        }));
+        const { error: errorInsert } = await supabase
+            .from('sistema_materiales')
+            .insert(filasParaGuardar);
+        errorMateriales = errorInsert;
+        if (!errorInsert) {
+            setFilasMateriales([nuevaFilaMaterial()]);
+        }
+      } else if (sistemaCreado) {
+        setFilasMateriales([nuevaFilaMaterial()]);
+      }
 
-      mostrar(
-        sistemaEditando ? '¡Actualizado!' : '¡Sistema Creado!',
-        sistemaEditando
-          ? 'El sistema fue modificado correctamente.'
-          : 'Ahora agrega los perfiles, vidrios y accesorios que lleva este sistema.',
-        'exito',
-      );
+      if (errorMateriales) {
+        mostrar(
+            'Sistema creado; materiales pendientes',
+            `No se pudieron guardar los materiales: ${mensajeErrorMaterialManual(errorMateriales)}. Puedes agregarlos desde el panel que se abrirá.`,
+            'error',
+        );
+      } else {
+        mostrar(
+            sistemaEditando ? '¡Actualizado!' : '¡Sistema Creado!',
+            sistemaEditando
+              ? 'El sistema fue modificado correctamente.'
+              : materialesIniciales.length > 0
+                ? 'El sistema y sus materiales se guardaron correctamente.'
+                : 'Ahora configura los perfiles, vidrios y accesorios con sus cantidades.',
+            'exito',
+        );
+      }
 
       setModalSistema(false);
       refrescar();
 
       // Al crear un sistema se abre el panel para cargar sus ítems de inmediato.
       if (sistemaCreado) {
-        await abrirDescuentos(sistemaCreado);
+        await abrirMateriales(sistemaCreado, true);
       }
     } catch (err) {
       setErrorForm(err.message || 'Error al guardar el sistema.');
@@ -333,9 +479,11 @@ export default function SistemasTrabajo({ permisos }) {
       );
       return;
     }
-    const confirmado = window.confirm(
-      `¿Eliminar el sistema "${sistema.nombre}" y sus materiales asociados?`,
-    );
+    const confirmado = await confirmar({
+      titulo: 'Eliminar sistema',
+      mensaje: `¿Eliminar el sistema "${sistema.nombre}" y sus materiales asociados? Esta acción no se puede deshacer.`,
+      confirmarTexto: 'Eliminar sistema',
+    });
     if (!confirmado) return;
 
     try {
@@ -364,21 +512,25 @@ export default function SistemasTrabajo({ permisos }) {
     setDividir(FORM_MATERIAL_VACIO.dividir);
     setReferencia(FORM_MATERIAL_VACIO.referencia);
     setAngulo(FORM_MATERIAL_VACIO.angulo);
+    setLadoAngulo(FORM_MATERIAL_VACIO.ladoAngulo);
     setLineaEditando(null);
   };
 
-  const abrirMateriales = async (sistema) => {
+  const abrirMateriales = async (sistema, conservarFilas = false) => {
     setSistemaSeleccionado(sistema);
     limpiarFormularioMaterial();
+    if (!conservarFilas) {
+      setFilasMateriales([nuevaFilaMaterial()]);
+    }
     setMaterialesDelSistema([]);
     setModalMateriales(true);
     await cargarMaterialesDelSistema(sistema.id);
   };
 
-  // Panel de descuentos: crea, edita y elimina piezas de la receta viendo el
-  // despiece resultante en vivo. Comparte la lista de materiales con el modal
-  // de materiales porque nunca se abren al mismo tiempo.
+  // Panel de descuentos: edita los ajustes generales y por pieza, y muestra
+  // el despiece resultante en vivo.
   const abrirDescuentos = async (sistema) => {
+    setSistemaDescuentosId(sistema.id);
     setSistemaDescuentos(sistema);
     setMaterialesDelSistema([]);
     setModalDescuentos(true);
@@ -410,9 +562,77 @@ export default function SistemasTrabajo({ permisos }) {
       .slice(0, 25);
   }, [inventario, textoBusquedaMaterial]);
 
+  const agregarFilaMaterial = () => {
+    setFilasMateriales((filas) => [
+      ...filas,
+      nuevaFilaMaterial(),
+    ]);
+  };
+
+  const cambiarFilaMaterial = (id, campo, valor) => {
+    setFilasMateriales((filas) =>
+      filas.map((fila) => (fila.id === id ? { ...fila, [campo]: valor } : fila)),
+    );
+  };
+
+  const quitarFilaMaterial = (id) => {
+    setFilasMateriales((filas) =>
+      filas.length === 1
+        ? [nuevaFilaMaterial()]
+        : filas.filter((fila) => fila.id !== id),
+    );
+  };
+
+  const guardarFilasMateriales = async (evento) => {
+    evento.preventDefault();
+    if (!puedeEditar || !sistemaSeleccionado) return;
+
+    let registros;
+    try {
+      registros = prepararMaterialesSistema(filasMateriales, inventario);
+    } catch (err) {
+      mostrar('No se pudieron validar los materiales', err.message);
+      return;
+    }
+
+    if (registros.length === 0) {
+      mostrar('Material requerido', 'Escribe al menos un perfil, vidrio, accesorio o empaque.');
+      return;
+    }
+
+    const siguienteOrden = materialesDelSistema.reduce(
+      (maximo, item) => Math.max(maximo, Number(item.orden) || 0),
+      0,
+    );
+    const filasValidas = registros.map((fila, indice) => ({
+      ...fila,
+      sistema_id: sistemaSeleccionado.id,
+      orden: siguienteOrden + indice + 1,
+    }));
+
+    setAgregandoMaterial(true);
+    try {
+      const { error: errorInsert } = await supabase
+        .from('sistema_materiales')
+        .insert(filasValidas);
+      if (errorInsert) throw errorInsert;
+      mostrar(
+        'Materiales agregados',
+        `Se agregaron ${filasValidas.length} material${filasValidas.length === 1 ? '' : 'es'} con sus cantidades.`,
+        'exito',
+      );
+      setFilasMateriales([nuevaFilaMaterial()]);
+      await cargarMaterialesDelSistema(sistemaSeleccionado.id);
+    } catch (err) {
+      mostrar('No se pudieron agregar los materiales', mensajeErrorMaterialManual(err));
+    } finally {
+      setAgregandoMaterial(false);
+    }
+  };
+
   const seleccionarMaterial = (material) => {
     setMaterialSeleccionado(material);
-    setTextoBusquedaMaterial(`${material.nombre} (${material.unidad_medida})`);
+    setTextoBusquedaMaterial(material.nombre);
     setMostrarSugerencias(false);
   };
 
@@ -426,9 +646,7 @@ export default function SistemasTrabajo({ permisos }) {
     const config = configuracionFormula(item);
     setLineaEditando(item.id);
     setMaterialSeleccionado(item.material || null);
-    setTextoBusquedaMaterial(
-      item.material ? `${item.material.nombre} (${item.material.unidad_medida})` : '',
-    );
+    setTextoBusquedaMaterial(item.material?.nombre || item.material_nombre || '');
     setCantidadRequerida(String(item.cantidad_requerida ?? 1));
     setTipoPieza(item.tipo_pieza || 'accesorio');
     setFormulaLargo(config.base || item.formula_largo || 'fijo');
@@ -438,6 +656,7 @@ export default function SistemasTrabajo({ permisos }) {
     setDividir(String(config.dividir ?? 1));
     setReferencia(config.referencia || '');
     setAngulo(String(config.angulo ?? 0));
+    setLadoAngulo(config.ladoAngulo || '');
     setMostrarSugerencias(false);
   };
 
@@ -452,8 +671,9 @@ export default function SistemasTrabajo({ permisos }) {
       return;
     }
 
-    if (!materialSeleccionado) {
-      mostrar('Selección requerida', 'Elige un material del autocompletado.');
+    const nombreMaterial = String(materialSeleccionado?.nombre || textoBusquedaMaterial).trim();
+    if (!nombreMaterial) {
+      mostrar('Nombre requerido', 'Escribe el nombre del material.');
       return;
     }
 
@@ -466,6 +686,14 @@ export default function SistemasTrabajo({ permisos }) {
     setAgregandoMaterial(true);
     try {
       const metadata = {
+        material_id:
+          materialSeleccionado?.id ||
+          inventario.find(
+            (material) =>
+              material.nombre?.trim().toLocaleLowerCase() === nombreMaterial.toLocaleLowerCase(),
+          )?.id ||
+          null,
+        material_nombre: nombreMaterial,
         cantidad_requerida: cantidad,
         tipo_pieza: tipoPieza,
         formula_largo: tipoPieza === 'perfil' ? formulaLargo : 'fijo',
@@ -477,6 +705,7 @@ export default function SistemasTrabajo({ permisos }) {
                 dividir: Math.max(1, numero(dividir, 1) || 1),
                 referencia: formulaLargo === 'referencia' ? referencia.trim() : '',
                 angulo: Math.max(0, numero(angulo, 0)),
+                ladoAngulo: Math.max(0, numero(angulo, 0)) > 0 ? ladoAngulo : '',
               }
             : {
                 base: 'fijo',
@@ -484,6 +713,7 @@ export default function SistemasTrabajo({ permisos }) {
                 dividir: 1,
                 referencia: '',
                 angulo: 0,
+                ladoAngulo: '',
               },
         angulo_corte:
           tipoPieza === 'perfil' ? Math.max(0, numero(angulo, 0)) : 0,
@@ -513,7 +743,7 @@ export default function SistemasTrabajo({ permisos }) {
             {
               id: nuevoId(),
               sistema_id: sistemaSeleccionado.id,
-              material_id: materialSeleccionado.id,
+              material_id: metadata.material_id,
               orden: siguienteOrden + 1,
               ...datos,
             },
@@ -530,7 +760,7 @@ export default function SistemasTrabajo({ permisos }) {
       limpiarFormularioMaterial();
       await cargarMaterialesDelSistema(sistemaSeleccionado.id);
     } catch (err) {
-      mostrar('No se pudo guardar', err.message);
+      mostrar('No se pudo guardar', mensajeErrorMaterialManual(err));
     } finally {
       setAgregandoMaterial(false);
     }
@@ -560,7 +790,7 @@ export default function SistemasTrabajo({ permisos }) {
     const texto = busqueda.toLowerCase().trim();
     if (!texto) return sistemas;
     return sistemas.filter((sistema) =>
-      [sistema.nombre, sistema.linea, sistema.descripcion]
+      [sistema.nombre, sistema.tipo, sistema.descripcion]
         .filter(Boolean)
         .some((campo) => String(campo).toLowerCase().includes(texto)),
     );
@@ -643,11 +873,57 @@ export default function SistemasTrabajo({ permisos }) {
             type="search"
             value={busqueda}
             onChange={(evento) => setBusqueda(evento.target.value)}
-            placeholder="Buscar sistema por nombre, línea o descripción..."
+            placeholder="Buscar sistema por nombre, tipo o descripción..."
             className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-10 pr-4 py-2.5 text-xs text-white focus:outline-none focus:border-blue-500"
           />
         </div>
       </div>
+
+      <section className="rounded-2xl border border-emerald-500/25 bg-gradient-to-br from-emerald-950/40 to-slate-900 p-4 shadow-lg">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <div className="max-w-xl">
+            <h2 className="flex items-center gap-2 text-sm font-bold text-emerald-300">
+              <Calculator size={17} /> Descuentos de sistemas guardados
+            </h2>
+            <p className="mt-1 text-[11px] leading-relaxed text-slate-400">
+              Selecciona un sistema existente para añadir o modificar sus descuentos generales y
+              los de cada perfil, vidrio o accesorio.
+            </p>
+          </div>
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:min-w-[320px] sm:flex-row">
+            <label className="sr-only" htmlFor="sistema-para-descuentos">
+              Sistema guardado
+            </label>
+            <select
+              id="sistema-para-descuentos"
+              value={sistemaDescuentosId}
+              onChange={(evento) => setSistemaDescuentosId(evento.target.value)}
+              disabled={sistemas.length === 0}
+              className="min-w-0 flex-1 rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-xs text-white focus:border-emerald-500 focus:outline-none disabled:opacity-50"
+            >
+              <option value="">
+                {sistemas.length === 0 ? 'No hay sistemas guardados' : 'Selecciona un sistema...'}
+              </option>
+              {sistemas.map((sistema) => (
+                <option key={sistema.id} value={sistema.id}>
+                  {sistema.nombre}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={() => {
+                const sistema = sistemas.find((item) => item.id === sistemaDescuentosId);
+                if (sistema) void abrirDescuentos(sistema);
+              }}
+              disabled={!sistemaDescuentosId}
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-bold text-white transition-colors hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <Calculator size={15} /> Configurar descuentos
+            </button>
+          </div>
+        </div>
+      </section>
 
       {error && (
         <div
@@ -672,7 +948,7 @@ export default function SistemasTrabajo({ permisos }) {
             <thead className="bg-slate-950/50 text-slate-400 uppercase font-semibold border-b border-slate-800">
               <tr>
                 <th className="p-4">Sistema / Modelo</th>
-                <th className="p-4">Línea</th>
+                <th className="p-4">Tipo</th>
                 <th className="p-4">Descripción</th>
                 <th className="p-4 text-center">Receta y descuentos</th>
                 {puedeEditar && <th className="p-4 text-right">Acciones</th>}
@@ -704,8 +980,8 @@ export default function SistemasTrabajo({ permisos }) {
                         <span className="truncate">{sistema.nombre}</span>
                       </div>
                     </td>
-                    <td className="p-4 text-blue-400 font-semibold whitespace-nowrap">
-                      {sistema.linea}
+                    <td className="p-4 text-slate-200 whitespace-nowrap capitalize">
+                      {String(sistema.tipo || '—').replaceAll('_', ' ')}
                     </td>
                     <td className="p-4 text-slate-300 max-w-xs truncate">
                       {sistema.descripcion || 'Sin descripción'}
@@ -715,17 +991,18 @@ export default function SistemasTrabajo({ permisos }) {
                         <button
                           type="button"
                           onClick={() => abrirMateriales(sistema)}
+                          title="Configura perfiles, vidrios, accesorios, cantidades y fórmulas de corte"
                           className="px-3 py-1.5 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 font-bold rounded-xl border border-blue-500/20 transition-all inline-flex items-center gap-1.5 text-[11px] whitespace-nowrap"
                         >
-                          <Package size={14} /> Gestionar Materiales
+                          <Package size={14} /> Materiales y cantidades
                         </button>
                         <button
                           type="button"
                           onClick={() => abrirDescuentos(sistema)}
-                          title="Crear, editar o eliminar los descuentos y ver el despiece"
+                          title="Configurar descuentos y consultar el despiece de este sistema"
                           className="px-3 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 font-bold rounded-xl border border-emerald-500/20 transition-all inline-flex items-center gap-1.5 text-[11px] whitespace-nowrap"
                         >
-                          <Calculator size={14} /> Descuentos
+                          <Calculator size={14} /> Configurar descuentos
                         </button>
                       </div>
                     </td>
@@ -767,7 +1044,7 @@ export default function SistemasTrabajo({ permisos }) {
         onClose={() => setModalSistema(false)}
         icono={<Layers size={20} />}
         titulo={sistemaEditando ? 'Editar Sistema' : 'Nuevo Sistema de Trabajo'}
-        subtitulo="Define la línea de perfilería y sus especificaciones."
+        subtitulo="Define el sistema y agrega cada perfil o accesorio con su cantidad en una fila separada."
       >
         <form onSubmit={handleGuardarSistema} className="space-y-4">
           {errorForm && (
@@ -795,158 +1072,48 @@ export default function SistemasTrabajo({ permisos }) {
             />
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label htmlFor="sistema-linea" className="block text-xs font-semibold text-slate-300 mb-1">
-                Línea o Perfilería
-              </label>
-              <select
-                id="sistema-linea"
-                value={form.linea}
-                onChange={(evento) => setForm((prev) => ({ ...prev, linea: evento.target.value }))}
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-blue-500"
-              >
-                {opcionesLinea.map((linea) => (
-                  <option key={linea} value={linea}>
-                    {linea}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label htmlFor="sistema-tipo" className="block text-xs font-semibold text-slate-300 mb-1">
-                Tipo de sistema
-              </label>
-              <select
-                id="sistema-tipo"
-                value={form.tipo}
-                onChange={(evento) => setForm((prev) => ({ ...prev, tipo: evento.target.value }))}
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-blue-500 capitalize"
-              >
-                {TIPOS_SISTEMA.map((tipo) => (
-                  <option key={tipo} value={tipo} className="capitalize">
-                    {tipo.replace('_', ' ')}
-                  </option>
-                ))}
-              </select>
-            </div>
+          <div>
+            <label htmlFor="sistema-tipo" className="block text-xs font-semibold text-slate-300 mb-1">
+              Tipo de sistema
+            </label>
+            <input
+              id="sistema-tipo"
+              type="text"
+              value={form.tipo}
+              onChange={(evento) => setForm((prev) => ({ ...prev, tipo: evento.target.value }))}
+              placeholder="Escribe el tipo de sistema"
+              className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-blue-500"
+              required
+            />
           </div>
 
-          <div className="bg-slate-950 border border-slate-800 rounded-2xl p-3 space-y-3">
-            <p className="text-[10px] uppercase tracking-wider font-bold text-slate-400">
-              Descuentos de fabricación
-            </p>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          {!sistemaEditando && (
+            <section className="space-y-3 rounded-2xl border border-slate-800 bg-slate-950 p-3">
               <div>
-                <label htmlFor="desc-vidrio-ancho" className="block text-[10px] text-slate-400 mb-1">
-                  Vidrio ancho (mm)
-                </label>
-                <input
-                  id="desc-vidrio-ancho"
-                  type="number"
-                  min="0"
-                  step="0.1"
-                  value={form.descuentoVidrioAncho}
-                  onChange={(evento) =>
-                    setForm((prev) => ({ ...prev, descuentoVidrioAncho: evento.target.value }))
-                  }
-                  className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-blue-500"
-                />
+                <h3 className="text-xs font-bold uppercase tracking-wide text-blue-300">
+                  Perfiles, vidrios y accesorios
+                </h3>
+                <p className="mt-1 text-[10px] text-slate-400">
+                  Agrega cada material en su propia fila y escribe cuántas unidades lleva. Usa
+                  “Agregar otro material” para añadir más campos.
+                </p>
               </div>
-              <div>
-                <label htmlFor="desc-vidrio-alto" className="block text-[10px] text-slate-400 mb-1">
-                  Vidrio alto (mm)
-                </label>
-                <input
-                  id="desc-vidrio-alto"
-                  type="number"
-                  min="0"
-                  step="0.1"
-                  value={form.descuentoVidrioAlto}
-                  onChange={(evento) =>
-                    setForm((prev) => ({ ...prev, descuentoVidrioAlto: evento.target.value }))
-                  }
-                  className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-blue-500"
-                />
-              </div>
-              <div>
-                <label htmlFor="desc-perfil-ancho" className="block text-[10px] text-slate-400 mb-1">
-                  Perfil ancho (mm)
-                </label>
-                <input
-                  id="desc-perfil-ancho"
-                  type="number"
-                  min="0"
-                  step="0.1"
-                  value={form.descuentoPerfilAncho}
-                  onChange={(evento) =>
-                    setForm((prev) => ({ ...prev, descuentoPerfilAncho: evento.target.value }))
-                  }
-                  className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-blue-500"
-                />
-              </div>
-              <div>
-                <label htmlFor="desc-perfil-alto" className="block text-[10px] text-slate-400 mb-1">
-                  Perfil alto (mm)
-                </label>
-                <input
-                  id="desc-perfil-alto"
-                  type="number"
-                  min="0"
-                  step="0.1"
-                  value={form.descuentoPerfilAlto}
-                  onChange={(evento) =>
-                    setForm((prev) => ({ ...prev, descuentoPerfilAlto: evento.target.value }))
-                  }
-                  className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-blue-500"
-                />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-2 max-w-md">
-              <div>
-                <label htmlFor="largo-barra" className="block text-[10px] text-slate-400 mb-1">
-                  Largo de barra (cm)
-                </label>
-                <input
-                  id="largo-barra"
-                  type="number"
-                  min="1"
-                  step="0.1"
-                  value={form.largoBarra}
-                  onChange={(evento) =>
-                    setForm((prev) => ({ ...prev, largoBarra: evento.target.value }))
-                  }
-                  className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-blue-500"
-                />
-              </div>
-              <div>
-                <label htmlFor="merma-sistema" className="block text-[10px] text-slate-400 mb-1">
-                  Merma general (%)
-                </label>
-                <input
-                  id="merma-sistema"
-                  type="number"
-                  min="0"
-                  step="0.1"
-                  value={form.merma}
-                  onChange={(evento) => setForm((prev) => ({ ...prev, merma: evento.target.value }))}
-                  className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-blue-500"
-                />
-              </div>
-            </div>
-            <p className="text-[10px] text-slate-500">
-              Escribe el largo real de la barra de perfil (en este taller: 595 cm). El descuento se
-              resta al vidrio y a cada corte al calcular el despiece de la orden.
-            </p>
-          </div>
+              <EditorFilasMateriales
+                filas={filasMateriales}
+                inventario={inventario}
+                onCambiar={cambiarFilaMaterial}
+                onAgregar={agregarFilaMaterial}
+                onQuitar={quitarFilaMaterial}
+              />
+            </section>
+          )}
 
           <div>
             <label
               htmlFor="sistema-descripcion"
               className="block text-xs font-semibold text-slate-300 mb-1"
             >
-              Descripción / Especificaciones
+              Descripción general (opcional)
             </label>
             <textarea
               id="sistema-descripcion"
@@ -955,15 +1122,14 @@ export default function SistemasTrabajo({ permisos }) {
               onChange={(evento) =>
                 setForm((prev) => ({ ...prev, descripcion: evento.target.value }))
               }
-              placeholder="Ej. Requiere 2 topes, 2 enganches, 2 jambas, 1 sillar, 1 cabezal..."
+              placeholder="Notas generales del sistema..."
               className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-blue-500 resize-none"
             />
           </div>
 
-          <p className="rounded-xl border border-emerald-500/20 bg-emerald-950/30 px-3 py-2 text-[10px] leading-relaxed text-emerald-200">
-            Al guardar un sistema nuevo se abre el panel <strong>Descuentos</strong> para que
-            agregues los <strong>perfiles, vidrios, accesorios y empaques</strong> que lleva y
-            definas cuánto se les descuenta al cortar.
+          <p className="rounded-xl border border-blue-500/20 bg-blue-950/30 px-3 py-2 text-[10px] leading-relaxed text-blue-200">
+            Los materiales se agregan en campos separados arriba. Después de guardar podrás
+            completar fórmulas y descuentos desde el panel <strong>Descuentos</strong>.
           </p>
 
           <div className="flex justify-end gap-3 pt-4 border-t border-slate-800">
@@ -983,7 +1149,7 @@ export default function SistemasTrabajo({ permisos }) {
                 ? 'Guardando...'
                 : sistemaEditando
                   ? 'Guardar Sistema'
-                  : 'Guardar y agregar ítems'}
+                    : 'Guardar sistema y materiales'}
             </button>
           </div>
         </form>
@@ -995,10 +1161,40 @@ export default function SistemasTrabajo({ permisos }) {
         onClose={() => setModalMateriales(false)}
         icono={<Package size={20} />}
         titulo={sistemaSeleccionado ? `Materiales de: ${sistemaSeleccionado.nombre}` : 'Materiales'}
-        subtitulo="Autocompletado predictivo sobre el inventario."
+        subtitulo="Agrega perfiles, vidrios, accesorios o empaques; define cantidad y fórmula de cada pieza."
         ancho="max-w-2xl"
       >
-        {puedeEditar && (
+        {puedeEditar && !lineaEditando && (
+          <form
+            onSubmit={guardarFilasMateriales}
+            className="space-y-3 rounded-2xl border border-slate-800 bg-slate-950 p-4"
+          >
+            <EditorFilasMateriales
+              filas={filasMateriales}
+              inventario={inventario}
+              onCambiar={cambiarFilaMaterial}
+              onAgregar={agregarFilaMaterial}
+              onQuitar={quitarFilaMaterial}
+            />
+
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-800 pt-3">
+              <p className="text-[10px] text-slate-500">
+                Puedes configurar después las fórmulas y descuentos de cada pieza en el panel
+                <strong> Descuentos</strong>.
+              </p>
+              <button
+                type="submit"
+                disabled={agregandoMaterial || filasMateriales.every((fila) => !fila.nombre.trim())}
+                className="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 px-4 py-2 text-xs font-bold text-white hover:bg-blue-500 disabled:opacity-50"
+              >
+                <Plus size={15} />
+                {agregandoMaterial ? 'Guardando...' : 'Guardar materiales'}
+              </button>
+            </div>
+          </form>
+        )}
+
+        {puedeEditar && lineaEditando && (
           <form
             onSubmit={agregarMaterial}
             className="space-y-3 bg-slate-950 p-4 rounded-2xl border border-slate-800"
@@ -1024,7 +1220,7 @@ export default function SistemasTrabajo({ permisos }) {
                   htmlFor="buscar-material"
                   className="block text-[10px] font-semibold text-slate-400 mb-1"
                 >
-                  Buscar material (ej. “tope”, “jamba”, “rodachina”)
+                  Nombre del material (escribe o elige una sugerencia)
                 </label>
                 <div className="relative">
                   <Search className="absolute left-3 top-2.5 text-slate-500" size={14} />
@@ -1039,7 +1235,7 @@ export default function SistemasTrabajo({ permisos }) {
                       setMaterialSeleccionado(null);
                     }}
                     onFocus={() => setMostrarSugerencias(true)}
-                    placeholder="Escribe para autocompletar..."
+                    placeholder="Ej. jamba, sillar, rodachina..."
                     className="w-full bg-slate-900 border border-slate-800 rounded-xl pl-9 pr-4 py-2 text-xs text-white focus:outline-none focus:border-blue-500 font-medium"
                   />
                 </div>
@@ -1095,7 +1291,7 @@ export default function SistemasTrabajo({ permisos }) {
                   />
                   <button
                     type="submit"
-                    disabled={agregandoMaterial || !materialSeleccionado}
+                    disabled={agregandoMaterial || !textoBusquedaMaterial.trim()}
                     aria-label={lineaEditando ? 'Guardar línea' : 'Agregar material'}
                     title={lineaEditando ? 'Guardar cambios' : 'Agregar material'}
                     className="bg-blue-600 hover:bg-blue-500 text-white font-bold px-3 py-2 rounded-xl text-xs shadow-md transition-all shrink-0 disabled:opacity-50"
@@ -1250,6 +1446,25 @@ export default function SistemasTrabajo({ permisos }) {
                   </div>
                   <div>
                     <label
+                      htmlFor="lado-angulo-linea"
+                      className="block text-[10px] font-semibold text-slate-400 mb-1"
+                    >
+                      Extremo del ángulo
+                    </label>
+                    <select
+                      id="lado-angulo-linea"
+                      value={ladoAngulo}
+                      onChange={(evento) => setLadoAngulo(evento.target.value)}
+                      disabled={numero(angulo, 0) <= 0}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-2 text-[11px] text-white focus:outline-none focus:border-blue-500 disabled:opacity-40"
+                    >
+                      <option value="">Sin especificar</option>
+                      <option value="sillar">Lado del sillar</option>
+                      <option value="cabezal">Lado del cabezal</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label
                       htmlFor="referencia-linea"
                       className="block text-[10px] font-semibold text-slate-400 mb-1"
                     >
@@ -1267,9 +1482,10 @@ export default function SistemasTrabajo({ permisos }) {
                   </div>
                 </div>
                 <p className="text-[10px] text-slate-500">
-                  Jamba 50/20: base alto, restar 1.3 cm, ángulo 5°. Horizontal: base ancho, restar
-                  2.8 cm, dividir 4. Barra toallera: fórmula “medida de otra pieza”, referencia
-                  “PV17 Ancho”, restar 9 cm.
+                  Jamba 50/20: base alto, restar 1.3 cm, ángulo 5° en el lado del sillar.
+                  Horizontal: base ancho, restar 2.8 cm, dividir 2 (dos horizontales por ventana).
+                  Barra toallera: fórmula “medida de otra pieza”, referencia “PV17 Ancho”, restar
+                  9 cm.
                 </p>
               </div>
             )}
@@ -1313,7 +1529,7 @@ export default function SistemasTrabajo({ permisos }) {
                 >
                   <div className="min-w-0">
                     <p className="text-xs font-bold text-white truncate">
-                      {item.material?.nombre || 'Material eliminado'}
+                      {item.material?.nombre || item.material_nombre || 'Material eliminado'}
                     </p>
                     <p className="text-[10px] text-slate-400 font-mono">
                       Ref: {item.material?.codigo_referencia || 'N/A'} ·{' '}
@@ -1381,10 +1597,13 @@ export default function SistemasTrabajo({ permisos }) {
         abierto={modalDescuentos}
         sistema={sistemaDescuentos}
         materiales={materialesDelSistema}
-        inventario={inventario}
         puedeEditar={puedeEditar}
         soportaAvanzado={soportaDespieceAvanzado}
         onClose={() => setModalDescuentos(false)}
+        onOpenMaterials={() => {
+          setModalDescuentos(false);
+          if (sistemaDescuentos) void abrirMateriales(sistemaDescuentos);
+        }}
         onRecargarMateriales={recargarMaterialesDescuentos}
         onSistemaActualizado={alActualizarSistemaDescuentos}
         mostrar={mostrar}

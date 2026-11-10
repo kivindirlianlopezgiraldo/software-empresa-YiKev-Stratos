@@ -4,6 +4,8 @@ import {
   Box,
   Boxes,
   Building2,
+  Calculator,
+  ClipboardCheck,
   Globe,
   HardHat,
   Layers,
@@ -36,6 +38,8 @@ import Herramientas from './pages/Herramientas';
 import Notificaciones from './pages/Notificaciones';
 import OrdenesTrabajo from './pages/OrdenesTrabajo';
 import SistemasTrabajo from './pages/SistemasTrabajo';
+import PruebasSistema from './pages/PruebasSistema';
+import DespieceCalculadora from './pages/DespieceCalculadora';
 
 const MENU = [
   {
@@ -55,6 +59,12 @@ const MENU = [
     etiqueta: 'Sistemas y Recetas',
     Icono: Layers,
     permitido: (p) => p.puedeVerSistemas,
+  },
+  {
+    id: 'despiece',
+    etiqueta: 'Calculadora de Despiece',
+    Icono: Calculator,
+    permitido: (p) => p.puedeCalcularDespiece,
   },
   {
     id: 'produccion',
@@ -91,6 +101,12 @@ const MENU = [
     etiqueta: 'Sitio web',
     Icono: Globe,
     permitido: (p) => p.puedeAdministrar,
+  },
+  {
+    id: 'pruebas',
+    etiqueta: 'Pruebas configuradas',
+    Icono: ClipboardCheck,
+    permitido: (p) => p.esSuperAdmin,
   },
   {
     id: 'notificaciones',
@@ -519,6 +535,9 @@ export default function App() {
                 />
               )}
               {vistaEfectiva === 'sistemas' && <SistemasTrabajo permisos={permisos} />}
+              {vistaEfectiva === 'despiece' && permisos.puedeCalcularDespiece && (
+                <DespieceCalculadora permisos={permisos} />
+              )}
               {vistaEfectiva === 'produccion' && (
                 <InventarioProduccion perfil={perfil} permisos={permisos} />
               )}
@@ -529,6 +548,7 @@ export default function App() {
               {vistaEfectiva === 'colaboradores' && <Colaboradores perfil={perfil} />}
               {vistaEfectiva === 'empresa' && <Empresa perfil={perfil} />}
               {vistaEfectiva === 'sitio' && <SitioWeb perfil={perfil} />}
+              {vistaEfectiva === 'pruebas' && permisos.esSuperAdmin && <PruebasSistema />}
               {vistaEfectiva === 'notificaciones' && (
                 <Notificaciones
                   onVerOrden={abrirOrdenDesdeNotificacion}

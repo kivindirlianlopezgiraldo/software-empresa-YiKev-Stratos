@@ -54,11 +54,20 @@ canvas {
 @keyframes toast-in {
   from {
     opacity: 0;
-    transform: translateY(-12px);
+    transform: translateY(-14px) scale(0.98);
   }
   to {
     opacity: 1;
-    transform: translateY(0);
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes toast-progress {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
   }
 }
 
@@ -74,7 +83,12 @@ canvas {
 }
 
 .animate-toast-in {
-  animation: toast-in 0.22s ease-out both;
+  animation: toast-in 0.32s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.toast-progress {
+  animation: toast-progress var(--toast-duration, 6000ms) linear both;
+  transform-origin: left center;
 }
 
 .animate-modal-in {
@@ -87,7 +101,8 @@ canvas {
   }
 
   .animate-toast-in,
-  .animate-modal-in {
+  .animate-modal-in,
+  .toast-progress {
     animation: none;
   }
 }

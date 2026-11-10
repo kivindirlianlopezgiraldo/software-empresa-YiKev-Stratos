@@ -158,19 +158,38 @@ Ese script:
 
 - agrega `sistemas_trabajo.largo_barra_cm` con valor por defecto **595 cm**;
 - agrega `sistema_materiales.formula_config` y `angulo_corte` para configurar por pieza:
-  `{ base, restarCm, dividir, referencia, angulo }`;
+  `{ base, restarCm, dividir, referencia, angulo, ladoAngulo }`;
 - crea la tabla `retales_produccion` (material, color, largo, cantidad, ubicación y
   disponibilidad) con RLS para admin, jefe, taller y bodega;
 - crea/actualiza los sistemas **Sistema 50/20** y **Cabina de Baño** con sus recetas
   completas, materiales y fórmulas.
 
+### 2.8 Ajuste de receta 50/20
+
+Ejecuta [`migrations/009_ajuste_receta_50_20.sql`](migrations/009_ajuste_receta_50_20.sql)
+después de la migración 008. Actualiza la receta existente del Sistema 50/20, incluyendo
+dos horizontales por ventana, cada uno con corte `(ancho − 2.8 cm) ÷ 2`.
+
 > Los materiales creados por la plantilla quedan con precio y stock en 0. Ajusta precios y
 > existencias en **Inventario** antes de usar el costo estimado.
 
-Sin esta migración, la app sigue funcionando, pero **Inventario de Producción → Retales**
+Sin la migración 008, la app sigue funcionando, pero **Inventario de Producción → Retales**
 muestra el aviso para aplicarla y el despiece usa el largo de barra por defecto (595 cm).
 
-### 2.8 Edge Function del asistente virtual (opcional)
+### 2.9 Migración 010: materiales escritos en las recetas
+
+Ejecuta [`migrations/010_materiales_manuales_receta.sql`](migrations/010_materiales_manuales_receta.sql)
+después de la migración 009.
+
+Esta migración permite escribir en texto el nombre de perfiles, vidrios, accesorios o empaques
+directamente en la receta del sistema, aunque no estén registrados en el inventario general.
+Las cantidades se guardan por separado y el tipo de pieza se selecciona para calcular el
+despiece. Si el nombre coincide con un material del inventario, se conserva su vínculo y costo.
+Después de ejecutarla, la migración solicita recargar la caché del esquema de la API. Si ya la
+ejecutaste y la app sigue mostrando que falta `material_nombre`, ejecuta
+`NOTIFY pgrst, 'reload schema';` en el SQL Editor y vuelve a intentar guardar.
+
+### 2.10 Edge Function del asistente virtual (opcional)
 
 El chatbot funciona sin IA con respuestas guiadas locales. Para activar la IA:
 
@@ -185,6 +204,22 @@ Luego, en **Supabase → Edge Functions → Secrets**, define:
 | `AI_API_KEY` | Sí, para IA real | Clave de un proveedor compatible con OpenAI |
 | `AI_BASE_URL` | No | Por defecto `https://api.openai.com/v1` |
 | `AI_MODEL` | No | Por defecto `gpt-4o-mini` |
+
+### 2.11 Restablecer contraseña de un colaborador
+
+Despliega la función administrativa que permite al **Super Admin** asignar una nueva
+contraseña sin conocer la anterior:
+
+```powershell
+supabase functions deploy restablecer-contrasena --no-verify-jwt
+```
+
+La función valida el token de sesión con Supabase Auth y vuelve a comprobar en el servidor
+que el perfil solicitante tenga exactamente el rol `Super Admin` y esté activo. Requiere
+las variables de entorno administradas por Supabase `SUPABASE_URL` y
+`SUPABASE_SERVICE_ROLE_KEY`; no copies ni configures la clave `service_role` en el frontend.
+La contraseña nueva debe tener al menos 8 caracteres. El administrador debe comunicarla al
+colaborador por un canal seguro.
 
 También puedes ejecutar `supabase/seed_demo.mjs` para cargar datos de demostración
 (idempotente, nunca sobrescribe datos reales).

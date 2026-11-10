@@ -5,6 +5,7 @@ import {
   Edit2,
   Eye,
   HeartPulse,
+  KeyRound,
   Plus,
   Power,
   RefreshCw,
@@ -31,6 +32,7 @@ import { formatCOP, formatFecha, formatMiles, parseCOP, soloDigitos } from '../l
 import Toast from '../components/Toast';
 import Modal from '../components/Modal';
 import useToast from '../hooks/useToast';
+import useConfirm from '../hooks/useConfirm';
 
 const claseInput =
   'w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-blue-500 disabled:opacity-50';
@@ -145,8 +147,14 @@ export default function Colaboradores({ perfil }) {
   const [form, setForm] = useState(FORM_VACIO);
   const [guardando, setGuardando] = useState(false);
   const [errorForm, setErrorForm] = useState('');
+  const [colaboradorContrasena, setColaboradorContrasena] = useState(null);
+  const [nuevaContrasena, setNuevaContrasena] = useState('');
+  const [confirmarContrasena, setConfirmarContrasena] = useState('');
+  const [restableciendoContrasena, setRestableciendoContrasena] = useState(false);
+  const [errorContrasena, setErrorContrasena] = useState('');
 
   const { alerta, mostrar, cerrar } = useToast();
+  const confirmar = useConfirm();
 
   const consultarColaboradores = useCallback(async () => {
     const { data, error: errorConsulta } = await supabase
@@ -185,6 +193,71 @@ export default function Colaboradores({ perfil }) {
   };
 
   const refrescar = useCallback(() => setRecarga((valor) => valor + 1), []);
+
+  const cerrarRestablecimiento = () => {
+    if (restableciendoContrasena) return;
+    setColaboradorContrasena(null);
+    setNuevaContrasena('');
+    setConfirmarContrasena('');
+    setErrorContrasena('');
+  };
+
+  const restablecerContrasena = async (evento) => {
+    evento.preventDefault();
+    if (!colaboradorContrasena || perfil?.rol !== ROLES.SUPER_ADMIN) return;
+
+    if (nuevaContrasena.length < 8) {
+      setErrorContrasena('La nueva contraseña debe tener al menos 8 caracteres.');
+      return;
+    }
+    if (nuevaContrasena !== confirmarContrasena) {
+      setErrorContrasena('Las contraseñas no coinciden.');
+      return;
+    }
+
+    setRestableciendoContrasena(true);
+    setErrorContrasena('');
+    try {
+      const { data, error: errorFuncion } = await supabase.functions.invoke(
+        'restablecer-contrasena',
+        {
+          body: {
+            userId: colaboradorContrasena.id,
+            newPassword: nuevaContrasena,
+          },
+        },
+      );
+
+      if (errorFuncion) {
+        let detalle = data?.error;
+        if (!detalle && errorFuncion.context instanceof Response) {
+          try {
+            const respuestaError = await errorFuncion.context.clone().json();
+            detalle = respuestaError?.error;
+          } catch {
+            detalle = '';
+          }
+        }
+        throw new Error(detalle || 'No se pudo restablecer la contraseña.');
+      }
+      if (!data?.ok) {
+        throw new Error(data?.error || 'No se pudo confirmar el restablecimiento.');
+      }
+
+      mostrar(
+        'Contraseña restablecida',
+        `La contraseña de ${colaboradorContrasena.nombre_completo} fue actualizada. Comunícale la nueva contraseña por un canal seguro.`,
+        'exito',
+      );
+      setColaboradorContrasena(null);
+      setNuevaContrasena('');
+      setConfirmarContrasena('');
+    } catch (err) {
+      setErrorContrasena(err.message || 'No se pudo restablecer la contraseña.');
+    } finally {
+      setRestableciendoContrasena(false);
+    }
+  };
 
   const actualizarCampo = (campo, valor) => {
     setForm((prev) => ({ ...prev, [campo]: valor }));
@@ -342,11 +415,14 @@ export default function Colaboradores({ perfil }) {
       return;
     }
 
-    const confirmado = window.confirm(
-      `¿Eliminar el acceso de "${colaborador.nombre_completo}"?\n\n` +
-        'Se borra su perfil y dejará de ver datos del sistema. ' +
+    const confirmado = await confirmar({
+      titulo: 'Eliminar acceso del colaborador',
+      mensaje:
+        `¿Eliminar el acceso de "${colaborador.nombre_completo}"?\n\n` +
+        'Se borrará su perfil y dejará de ver datos del sistema. ' +
         'La cuenta de autenticación debe eliminarse desde el panel de Supabase.',
-    );
+      confirmarTexto: 'Eliminar acceso',
+    });
     if (!confirmado) return;
 
     try {
@@ -637,6 +713,22 @@ export default function Colaboradores({ perfil }) {
                           >
                             <Edit2 size={14} />
                           </button>
+                          {perfil?.rol === ROLES.SUPER_ADMIN && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setColaboradorContrasena(colaborador);
+                                setNuevaContrasena('');
+                                setConfirmarContrasena('');
+                                setErrorContrasena('');
+                              }}
+                              title="Restablecer contraseña"
+                              aria-label={`Restablecer contraseña de ${colaborador.nombre_completo}`}
+                              className="rounded-lg bg-amber-500/10 p-1.5 text-amber-300 transition-colors hover:bg-amber-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+                            >
+                              <KeyRound size={14} aria-hidden="true" />
+                            </button>
+                          )}
                           <button
                             type="button"
                             onClick={() => alternarActivo(colaborador)}
@@ -774,6 +866,82 @@ export default function Colaboradores({ perfil }) {
             </div>
           </div>
         )}
+      </Modal>
+
+      <Modal
+        abierto={Boolean(colaboradorContrasena)}
+        onClose={cerrarRestablecimiento}
+        icono={<KeyRound size={20} />}
+        titulo="Restablecer contraseña"
+        subtitulo={
+          colaboradorContrasena
+            ? `Define una nueva contraseña para ${colaboradorContrasena.nombre_completo}. No se necesita la contraseña anterior.`
+            : ''
+        }
+      >
+        <form onSubmit={restablecerContrasena} className="space-y-4">
+          <div className="rounded-xl border border-amber-500/20 bg-amber-950/20 p-3 text-[11px] leading-relaxed text-amber-200">
+            Comunica la nueva contraseña al colaborador por un canal seguro. No la envíes en un
+            mensaje grupal ni la compartas con otras personas.
+          </div>
+          {errorContrasena && (
+            <div
+              role="alert"
+              className="flex items-start gap-2 rounded-xl border border-red-500/20 bg-red-500/10 p-3 text-xs text-red-300"
+            >
+              <AlertCircle size={16} className="mt-0.5 shrink-0" aria-hidden="true" />
+              {errorContrasena}
+            </div>
+          )}
+          <Campo
+            id="colaborador-nueva-contrasena"
+            etiqueta="Nueva contraseña"
+            ayuda="Debe tener al menos 8 caracteres."
+          >
+            <input
+              id="colaborador-nueva-contrasena"
+              type="password"
+              autoComplete="new-password"
+              minLength={8}
+              value={nuevaContrasena}
+              onChange={(evento) => setNuevaContrasena(evento.target.value)}
+              className={claseInput}
+              required
+              disabled={restableciendoContrasena}
+            />
+          </Campo>
+          <Campo id="colaborador-confirmar-contrasena" etiqueta="Confirmar nueva contraseña">
+            <input
+              id="colaborador-confirmar-contrasena"
+              type="password"
+              autoComplete="new-password"
+              minLength={8}
+              value={confirmarContrasena}
+              onChange={(evento) => setConfirmarContrasena(evento.target.value)}
+              className={claseInput}
+              required
+              disabled={restableciendoContrasena}
+            />
+          </Campo>
+          <div className="flex flex-col-reverse gap-2 border-t border-slate-800 pt-4 sm:flex-row sm:justify-end">
+            <button
+              type="button"
+              onClick={cerrarRestablecimiento}
+              disabled={restableciendoContrasena}
+              className="rounded-xl bg-slate-800 px-4 py-2.5 text-xs font-semibold text-slate-200 transition-colors hover:bg-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 disabled:opacity-50"
+            >
+              Cancelar
+            </button>
+            <button
+              type="submit"
+              disabled={restableciendoContrasena}
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-amber-600 px-4 py-2.5 text-xs font-bold text-white transition-colors hover:bg-amber-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 disabled:opacity-50"
+            >
+              <KeyRound size={14} aria-hidden="true" />
+              {restableciendoContrasena ? 'Restableciendo...' : 'Guardar nueva contraseña'}
+            </button>
+          </div>
+        </form>
       </Modal>
 
       {/* Formulario crear / editar */}

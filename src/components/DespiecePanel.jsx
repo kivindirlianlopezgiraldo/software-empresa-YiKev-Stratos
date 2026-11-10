@@ -91,7 +91,11 @@ function TablaCortes({ cortes }) {
                   {formatearMetros(corte.totalMetros)}
                 </td>
                 <td className="px-3 py-2 text-right font-mono text-fuchsia-300">
-                  {Number(corte.anguloCorte) ? `${Number(corte.anguloCorte)}°` : '—'}
+                  {Number(corte.anguloCorte)
+                    ? `${Number(corte.anguloCorte)}°${
+                        corte.ladoAngulo ? ` · lado ${corte.ladoAngulo}` : ''
+                      }`
+                    : '—'}
                 </td>
                 <td className="px-3 py-2 text-right font-mono text-emerald-300">
                   {Number(corte.piezasRetal) > 0 ? (

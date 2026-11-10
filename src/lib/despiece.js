@@ -118,7 +118,7 @@ export function largoBaseCm(formula, anchoCm, altoCm) {
  * Devuelve la configuración de fórmula de una línea de receta.
  *
  * Las recetas nuevas guardan `formula_config` con:
- *   { base, restarCm, dividir, referencia, angulo }
+ *   { base, restarCm, dividir, referencia, angulo, ladoAngulo, descuentosAdicionalesMm }
  * Las recetas antiguas siguen funcionando con `formula_largo` + `descuento_mm`.
  */
 export function configuracionFormula(linea = {}) {
@@ -141,6 +141,8 @@ export function configuracionFormula(linea = {}) {
       dividir: 1,
       referencia: '',
       angulo: num(linea.angulo_corte ?? linea.anguloCorte),
+      ladoAngulo: '',
+      descuentosAdicionalesMm: [],
     };
   }
 
@@ -151,6 +153,10 @@ export function configuracionFormula(linea = {}) {
     dividir: Math.max(1, num(crudo.dividir ?? crudo.divisor, 1) || 1),
     referencia: String(crudo.referencia || '').trim(),
     angulo: num(crudo.angulo ?? linea.angulo_corte ?? linea.anguloCorte),
+    ladoAngulo: String(crudo.ladoAngulo ?? crudo.lado_angulo ?? '').trim(),
+    descuentosAdicionalesMm: Array.isArray(crudo.descuentosAdicionalesMm)
+      ? crudo.descuentosAdicionalesMm.map((descuento) => Math.max(0, num(descuento)))
+      : [],
   };
 }
 
@@ -165,7 +171,10 @@ export function describirFormula(formula, config) {
 
   if (config.restarCm) texto += ` − ${config.restarCm} cm`;
   if (config.dividir > 1) texto = `(${texto}) ÷ ${config.dividir}`;
-  if (config.angulo) texto += ` · ${config.angulo}°`;
+  if (config.angulo) {
+    texto += ` · ${config.angulo}°`;
+    if (config.ladoAngulo) texto += ` lado ${config.ladoAngulo}`;
+  }
 
   return texto;
 }
@@ -193,14 +202,23 @@ function datosMaterial(linea) {
     nombre: material.nombre || linea.material_nombre || 'Material sin nombre',
     codigo: material.codigo_referencia || linea.codigo_referencia || '',
     categoria,
-    unidad: material.unidad_medida || linea.unidad_medida || 'Unidad',
+    unidad:
+      material.unidad_medida ||
+      linea.unidad_medida ||
+      (tipoPieza === 'perfil'
+        ? 'Metro lineal (m)'
+        : tipoPieza === 'vidrio'
+          ? 'Metro cuadrado (m²)'
+          : 'Unidad'),
     precio: num(material.precio_venta ?? linea.precio_venta),
     tipoPieza,
     esVidrio: Boolean(linea.es_vidrio) || tipoPieza === 'vidrio' || esCategoriaVidrio(categoria),
     formula: linea.formula_largo || (tipoPieza === 'perfil' ? 'perimetro' : 'fijo'),
     config,
     formulaTexto: describirFormula(linea.formula_largo || '', config),
-    descuentoMm: num(linea.descuento_mm),
+    descuentoMm:
+      num(linea.descuento_mm) +
+      config.descuentosAdicionalesMm.reduce((total, descuento) => total + descuento, 0),
     merma: num(linea.merma_porcentaje),
     cantidadReceta: num(linea.cantidad_requerida, 1) || 1,
   };
@@ -209,7 +227,7 @@ function datosMaterial(linea) {
 /**
  * Calcula el largo de corte de una pieza.
  * En fórmulas avanzadas el descuento se resta antes de dividir:
- *   horizontal = (ancho − 2.8) ÷ 4
+ *   horizontal 50/20 = (ancho − 2.8) ÷ 2
  */
 function largoCorteDeFormula(config, anchoCm, altoCm, referenciaCm, descuentoMm) {
   let baseCm;
@@ -505,6 +523,8 @@ export function generarDespiece(items = [], sistemas = [], opciones = {}) {
 
     const descVidrioAncho = num(sistema?.descuento_vidrio_ancho_mm, 30);
     const descVidrioAlto = num(sistema?.descuento_vidrio_alto_mm, 30);
+    const descPerfilAncho = num(sistema?.descuento_perfil_ancho_mm);
+    const descPerfilAlto = num(sistema?.descuento_perfil_alto_mm);
     const mermaSistema = num(sistema?.merma_porcentaje, 5);
 
     const cortes = [];
@@ -518,10 +538,18 @@ export function generarDespiece(items = [], sistemas = [], opciones = {}) {
     // ------------------------------------------------------------------
     const lineasReceta = receta.map((linea, lineIndex) => {
       const material = datosMaterial(linea);
+      const ejeFormula = material.config.base;
+      const descuentoPerfilMm =
+        ejeFormula === 'ancho' || ejeFormula === 'ancho_mitad'
+          ? descPerfilAncho
+          : ejeFormula === 'alto' || ejeFormula === 'alto_mitad'
+            ? descPerfilAlto
+            : 0;
       return {
         lineIndex,
         linea,
         material,
+        descuentoPerfilMm,
         key: `${indice}-${lineIndex}`,
         largoCorteCm: null,
       };
@@ -550,7 +578,7 @@ export function generarDespiece(items = [], sistemas = [], opciones = {}) {
         anchoCm,
         altoCm,
         null,
-        fila.material.descuentoMm,
+        fila.material.descuentoMm + fila.descuentoPerfilMm,
       );
     });
 
@@ -573,7 +601,7 @@ export function generarDespiece(items = [], sistemas = [], opciones = {}) {
           anchoCm,
           altoCm,
           referencia.largoCorteCm,
-          fila.material.descuentoMm,
+          fila.material.descuentoMm + fila.descuentoPerfilMm,
         );
       });
 
@@ -594,7 +622,7 @@ export function generarDespiece(items = [], sistemas = [], opciones = {}) {
         anchoCm,
         altoCm,
         null,
-        fila.material.descuentoMm,
+        fila.material.descuentoMm + fila.descuentoPerfilMm,
       );
     });
 
@@ -654,6 +682,7 @@ export function generarDespiece(items = [], sistemas = [], opciones = {}) {
         }
 
         const totalMetros = (largoCorteCm / 100) * piezas * (1 + merma / 100);
+        const descuentoTotalMm = material.descuentoMm + fila.descuentoPerfilMm;
         const unidadBarra = esUnidadBarra(material.unidad);
         const barrasLinea = unidadBarra
           ? Math.ceil(totalMetros / (largoBarraCm / 100))
@@ -671,8 +700,12 @@ export function generarDespiece(items = [], sistemas = [], opciones = {}) {
           tipoPieza: 'perfil',
           formula: material.formula,
           formulaConfig: material.config,
-          formulaTexto: material.formulaTexto,
+          formulaTexto:
+            descuentoTotalMm > 0
+              ? `${material.formulaTexto} − ${redondear(descuentoTotalMm)} mm`
+              : material.formulaTexto,
           anguloCorte: material.config.angulo || 0,
+          ladoAngulo: material.config.ladoAngulo || '',
           unidad: unidadBarra ? `barra ${redondear(largoBarraCm, 0)} cm` : material.unidad,
           precio: material.precio,
           unidadBarra,

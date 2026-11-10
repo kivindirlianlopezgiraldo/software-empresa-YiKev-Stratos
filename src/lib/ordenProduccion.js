@@ -109,10 +109,7 @@ export function imprimirOrdenProduccion({ empresa, orden, items = [], despiece, 
 
   const ventana = window.open('', '_blank', 'width=980,height=800');
   if (!ventana) {
-    window.alert(
-      'El navegador bloqueó la ventana emergente. Permite las ventanas emergentes para descargar la orden de producción.',
-    );
-    return;
+    return false;
   }
 
   const nombreEmpresa = empresa?.nombre_comercial || 'YiKev Stratos';
@@ -176,7 +173,11 @@ export function imprimirOrdenProduccion({ empresa, orden, items = [], despiece, 
           <td class="centro mono">${Number(corte.cantidad || 0)}</td>
           <td class="centro mono fuerte">${cm(corte.largoCorteCm)}</td>
           <td class="centro mono">${
-            Number(corte.anguloCorte) ? `${Number(corte.anguloCorte)}°` : '—'
+            Number(corte.anguloCorte)
+              ? `${Number(corte.anguloCorte)}°${
+                  corte.ladoAngulo ? ` · lado ${escapar(corte.ladoAngulo)}` : ''
+                }`
+              : '—'
           }</td>
           <td class="centro mono">${Number(corte.piezasRetal || 0) || '—'}</td>
           <td class="centro mono">${Number(corte.barrasNuevas ?? corte.barras ?? 0) || '—'}</td>
@@ -525,4 +526,5 @@ export function imprimirOrdenProduccion({ empresa, orden, items = [], despiece, 
   ventana.document.write(html);
   ventana.document.close();
   ventana.focus();
+  return true;
 }

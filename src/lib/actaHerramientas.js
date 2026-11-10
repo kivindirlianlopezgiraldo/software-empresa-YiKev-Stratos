@@ -19,10 +19,7 @@ function escapar(valor) {
 export function imprimirActaHerramientas({ empresa, lote, orden, colaborador, registradoPor }) {
   const ventana = window.open('', '_blank', 'width=900,height=760');
   if (!ventana) {
-    window.alert(
-      'El navegador bloqueó la ventana emergente. Permite las ventanas emergentes para imprimir el acta.',
-    );
-    return;
+    return false;
   }
 
   const esSalida = lote?.tipo !== 'entrada';
@@ -207,4 +204,5 @@ export function imprimirActaHerramientas({ empresa, lote, orden, colaborador, re
   ventana.document.write(html);
   ventana.document.close();
   ventana.focus();
+  return true;
 }

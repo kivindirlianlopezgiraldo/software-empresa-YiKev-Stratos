@@ -51,6 +51,7 @@ import Toast from '../components/Toast';
 import Modal from '../components/Modal';
 import DespiecePanel from '../components/DespiecePanel';
 import useToast from '../hooks/useToast';
+import useConfirm from '../hooks/useConfirm';
 
 const numero = (valor, defecto = 0) => {
   const n = Number(String(valor ?? '').replace(',', '.'));
@@ -209,6 +210,7 @@ export default function OrdenesTrabajo({ perfil, ordenInicialId = null, onOrdenA
   });
 
   const { alerta, mostrar, cerrar } = useToast();
+  const confirmar = useConfirm();
   const permisos = useMemo(() => permisosDe(perfil?.rol), [perfil?.rol]);
   const solicitudDetalle = useRef(0);
   const ordenInicialAbierta = useRef(null);
@@ -1196,7 +1198,12 @@ export default function OrdenesTrabajo({ perfil, ordenInicialId = null, onOrdenA
 
   const eliminarOrden = async (orden) => {
     if (!permisos.puedeAdministrar) return;
-    if (!window.confirm(`¿Eliminar definitivamente la orden de "${orden.cliente_nombre}"?`)) return;
+    const confirmado = await confirmar({
+      titulo: 'Eliminar orden de trabajo',
+      mensaje: `¿Eliminar definitivamente la orden de "${orden.cliente_nombre}"?`,
+      confirmarTexto: 'Eliminar orden',
+    });
+    if (!confirmado) return;
 
     try {
       const { error: errorDelete } = await supabase
@@ -1257,15 +1264,22 @@ export default function OrdenesTrabajo({ perfil, ordenInicialId = null, onOrdenA
   const descargarOrdenProduccion = useCallback(
     (orden) => {
       const filas = itemsPorOrden.get(orden.id) || [];
-      imprimirOrdenProduccion({
+      const abierta = imprimirOrdenProduccion({
         empresa,
         orden,
         items: filas,
         despiece: despieceDeOrden(orden),
         generadoPor: perfil?.nombre_completo,
       });
+      if (abierta === false) {
+        mostrar(
+          'Ventana emergente bloqueada',
+          'Permite las ventanas emergentes para abrir la orden de producción.',
+          'advertencia',
+        );
+      }
     },
-    [despieceDeOrden, empresa, itemsPorOrden, perfil?.nombre_completo],
+    [despieceDeOrden, empresa, itemsPorOrden, mostrar, perfil?.nombre_completo],
   );
 
   const tieneDetalleProduccion = useCallback(

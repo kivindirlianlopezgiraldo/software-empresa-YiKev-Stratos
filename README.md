@@ -89,11 +89,13 @@ cliente. Cada ítem guarda sistema, medidas, cantidad, tipo de vidrio, espesor y
   guarda como instantánea JSONB en `ordenes_trabajo.despiece`.
 - El despiece aplica automáticamente los **descuentos de cada sistema** al escribir las
   medidas. Por ejemplo, en el **50/20**: sillar y cabezal al ancho total, jamba = alto − 1.3 cm
-  con corte a 5°, tope y enganche = alto − 3 cm y horizontal = (ancho − 2.8 cm) ÷ 4. En la
+  con corte a 5° en el lado del sillar, tope y enganche = alto − 3 cm y dos horizontales de
+  (ancho − 2.8 cm) ÷ 2. La receta lleva 1 cabezal, 1 sillar, 2 jambas, 2 topes, 2 enganches,
+  2 horizontales, 1 seguro y 4 rodachinas por ventana. En la
   **cabina de baño**: War 12 alto = alto − 3 cm, PV17 fija = alto − 4.5 cm, PV17 corrediza =
   alto − 5.5 cm, PV17 ancho = (ancho − 1 cm) ÷ 2 y barra toallera = PV17 ancho − 9 cm.
 - Cada línea de receta guarda una `formula_config`:
-  `{ base, restarCm, dividir, referencia, angulo }`. La fórmula es
+  `{ base, restarCm, dividir, referencia, angulo, ladoAngulo }`. La fórmula es
   `(base − restarCm − descuento_mm/10) ÷ dividir` y puede tomar la medida de otra pieza
   (por ejemplo, la barra toallera usa la medida del PV17 ancho).
 - El perfil de aluminio se maneja en **barras de 595 cm** (`sistemas_trabajo.largo_barra_cm`).
@@ -105,6 +107,12 @@ cliente. Cada ítem guarda sistema, medidas, cantidad, tipo de vidrio, espesor y
   ajustar piezas, restar centímetros, divisores, ángulos, referencias, descuento en mm y merma.
   El panel calcula un **despiece de muestra** con las medidas que escribas, para ver de
   inmediato cuánto material se necesita antes de guardar.
+- La línea o perfilería y el tipo del sistema admiten valores manuales además de sugerencias.
+  Los descuentos generales de perfil por ancho y alto se aplican según la fórmula de cada corte;
+  las reglas particulares siguen configurándose por pieza en **Descuentos**.
+- **Calculadora de Despiece** permite a Super Admin, Jefe de Taller y Producción seleccionar un
+  sistema, ingresar ancho, alto, unidades y color, y ver cortes, vidrio, accesorios y barras sin
+  crear ni modificar una orden. Las recetas y descuentos solo los editan Super Admin y Jefe de Taller.
 - Al crear un **Nuevo Sistema**, el botón de guardado dice **“Guardar y agregar ítems”** y,
   al terminar, se abre automáticamente el panel **Descuentos** para cargar de una vez los
   perfiles, vidrios, accesorios y empaques que lleva el sistema.
@@ -253,6 +261,7 @@ Respalda antes. Son idempotentes.
 | `006_herramientas_movimientos.sql` | Historial de salidas y entradas de herramientas por colaborador, con actas por lote y orden asociada |
 | `007_herramientas_kits.sql` | Kits de herramientas por rol (producción, instalación, bodega) y kits base |
 | `008_despiece_avanzado_retales.sql` | Barras de 595 cm, fórmula avanzada por pieza (descuentos, divisores, referencias y ángulos), tabla `retales_produccion` y plantillas 50/20 + cabina de baño |
+| `009_ajuste_receta_50_20.sql` | Ajusta la receta 50/20: dos horizontales por ventana, cada uno de (ancho − 2.8 cm) ÷ 2 |
 
 La 001, además:
 

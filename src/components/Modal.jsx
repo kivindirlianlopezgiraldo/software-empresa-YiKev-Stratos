@@ -31,11 +31,6 @@ export default function Modal({
     const temporizador = setTimeout(() => contenedorRef.current?.focus(), 30);
 
     const alPresionar = (evento) => {
-      if (evento.key === 'Escape') {
-        onCloseRef.current?.();
-        return;
-      }
-
       // Mantener el foco dentro del modal mientras está abierto.
       if (evento.key !== 'Tab' || !contenedorRef.current) return;
 
@@ -71,12 +66,7 @@ export default function Modal({
   if (!abierto) return null;
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-end justify-center overflow-y-auto bg-slate-950/80 p-0 backdrop-blur-sm sm:items-center sm:p-4"
-      onMouseDown={(evento) => {
-        if (evento.target === evento.currentTarget) onClose();
-      }}
-    >
+    <div className="fixed inset-0 z-50 flex items-end justify-center overflow-y-auto bg-slate-950/80 p-0 backdrop-blur-sm sm:items-center sm:p-4">
       <div
         ref={contenedorRef}
         role="dialog"

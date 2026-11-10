@@ -9,6 +9,7 @@ const ALERTA_INICIAL = { visible: false, titulo: '', mensaje: '', tipo: 'error' 
 export default function useToast(duracion = 6000) {
   const [alerta, setAlerta] = useState(ALERTA_INICIAL);
   const temporizador = useRef(null);
+  const siguienteId = useRef(0);
 
   const limpiarTemporizador = useCallback(() => {
     if (temporizador.current) {
@@ -25,7 +26,14 @@ export default function useToast(duracion = 6000) {
   const mostrar = useCallback(
     (titulo, mensaje, tipo = 'error') => {
       limpiarTemporizador();
-      setAlerta({ visible: true, titulo, mensaje, tipo });
+      setAlerta({
+        visible: true,
+        titulo,
+        mensaje,
+        tipo,
+        id: ++siguienteId.current,
+        duracion,
+      });
       temporizador.current = setTimeout(() => {
         setAlerta((prev) => ({ ...prev, visible: false }));
       }, duracion);
