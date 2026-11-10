@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
+  Calculator,
   Edit2,
   Layers,
   Lock,
@@ -30,6 +31,7 @@ import {
 import Toast from '../components/Toast';
 import Modal from '../components/Modal';
 import DespiecePanel from '../components/DespiecePanel';
+import DescuentosSistema from '../components/DescuentosSistema';
 import useToast from '../hooks/useToast';
 
 // Copia el objeto sin las columnas indicadas (para bases sin la migración 008).
@@ -83,6 +85,9 @@ export default function SistemasTrabajo({ permisos }) {
   const [sistemaSeleccionado, setSistemaSeleccionado] = useState(null);
   const [materialesDelSistema, setMaterialesDelSistema] = useState([]);
   const [cargandoMateriales, setCargandoMateriales] = useState(false);
+
+  const [modalDescuentos, setModalDescuentos] = useState(false);
+  const [sistemaDescuentos, setSistemaDescuentos] = useState(null);
 
   const [textoBusquedaMaterial, setTextoBusquedaMaterial] = useState('');
   const [materialSeleccionado, setMaterialSeleccionado] = useState(null);
@@ -354,6 +359,29 @@ export default function SistemasTrabajo({ permisos }) {
     setModalMateriales(true);
     await cargarMaterialesDelSistema(sistema.id);
   };
+
+  // Panel de descuentos: crea, edita y elimina piezas de la receta viendo el
+  // despiece resultante en vivo. Comparte la lista de materiales con el modal
+  // de materiales porque nunca se abren al mismo tiempo.
+  const abrirDescuentos = async (sistema) => {
+    setSistemaDescuentos(sistema);
+    setMaterialesDelSistema([]);
+    setModalDescuentos(true);
+    await cargarMaterialesDelSistema(sistema.id);
+  };
+
+  const recargarMaterialesDescuentos = useCallback(async () => {
+    if (!sistemaDescuentos) return;
+    await cargarMaterialesDelSistema(sistemaDescuentos.id);
+  }, [cargarMaterialesDelSistema, sistemaDescuentos]);
+
+  const alActualizarSistemaDescuentos = useCallback(
+    (cambios = {}) => {
+      setSistemaDescuentos((prev) => (prev ? { ...prev, ...cambios } : prev));
+      refrescar();
+    },
+    [refrescar],
+  );
 
   const sugerencias = useMemo(() => {
     const texto = textoBusquedaMaterial.toLowerCase().trim();
@@ -631,7 +659,7 @@ export default function SistemasTrabajo({ permisos }) {
                 <th className="p-4">Sistema / Modelo</th>
                 <th className="p-4">Línea</th>
                 <th className="p-4">Descripción</th>
-                <th className="p-4 text-center">Receta</th>
+                <th className="p-4 text-center">Receta y descuentos</th>
                 {puedeEditar && <th className="p-4 text-right">Acciones</th>}
               </tr>
             </thead>
@@ -668,13 +696,23 @@ export default function SistemasTrabajo({ permisos }) {
                       {sistema.descripcion || 'Sin descripción'}
                     </td>
                     <td className="p-4 text-center">
-                      <button
-                        type="button"
-                        onClick={() => abrirMateriales(sistema)}
-                        className="px-3 py-1.5 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 font-bold rounded-xl border border-blue-500/20 transition-all inline-flex items-center gap-1.5 text-[11px] whitespace-nowrap"
-                      >
-                        <Package size={14} /> Gestionar Materiales
-                      </button>
+                      <div className="inline-flex flex-wrap items-center justify-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => abrirMateriales(sistema)}
+                          className="px-3 py-1.5 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 font-bold rounded-xl border border-blue-500/20 transition-all inline-flex items-center gap-1.5 text-[11px] whitespace-nowrap"
+                        >
+                          <Package size={14} /> Gestionar Materiales
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => abrirDescuentos(sistema)}
+                          title="Crear, editar o eliminar los descuentos y ver el despiece"
+                          className="px-3 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 font-bold rounded-xl border border-emerald-500/20 transition-all inline-flex items-center gap-1.5 text-[11px] whitespace-nowrap"
+                        >
+                          <Calculator size={14} /> Descuentos
+                        </button>
+                      </div>
                     </td>
                     {puedeEditar && (
                       <td className="p-4 text-right whitespace-nowrap">
@@ -1310,6 +1348,21 @@ export default function SistemasTrabajo({ permisos }) {
           )}
         </div>
       </Modal>
+
+      <DescuentosSistema
+        key={`${sistemaDescuentos?.id ?? 'sin'}-${materialesDelSistema
+          .map((linea) => linea.id)
+          .join('|')}`}
+        abierto={modalDescuentos}
+        sistema={sistemaDescuentos}
+        materiales={materialesDelSistema}
+        inventario={inventario}
+        puedeEditar={puedeEditar}
+        onClose={() => setModalDescuentos(false)}
+        onRecargarMateriales={recargarMaterialesDescuentos}
+        onSistemaActualizado={alActualizarSistemaDescuentos}
+        mostrar={mostrar}
+      />
     </div>
   );
 }

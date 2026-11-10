@@ -100,6 +100,11 @@ cliente. Cada ítem guarda sistema, medidas, cantidad, tipo de vidrio, espesor y
 - Antes de pedir barras nuevas, el motor compara cada pieza con los **retales disponibles**
   en producción (`retales_produccion`) por material, color y largo. Los retales se consumen
   primero y solo lo que no cabe se convierte en barras nuevas.
+- En **Sistemas y Recetas** cada sistema tiene un botón **Descuentos** con un panel propio
+  para crear, editar o eliminar las piezas de la receta (perfil, vidrio, accesorio o empaque),
+  ajustar piezas, restar centímetros, divisores, ángulos, referencias, descuento en mm y merma.
+  El panel calcula un **despiece de muestra** con las medidas que escribas, para ver de
+  inmediato cuánto material se necesita antes de guardar.
 - El despiece incluye cortes de perfiles (con descuentos, ángulo y merma), medidas exactas
   de vidrio, accesorios, cantidades, retales aprovechados, barras nuevas y costo estimado
   de compra.
