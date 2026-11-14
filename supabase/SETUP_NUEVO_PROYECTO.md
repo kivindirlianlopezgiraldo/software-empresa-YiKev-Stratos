@@ -219,7 +219,25 @@ después de las migraciones 005 y 007. Corrige secuencias de caracteres dañadas
 nombres y puntos de verificación guardados, además de los nombres y elementos de los kits.
 No reemplaza checklists ni kits completos.
 
-### 2.13 Edge Function del asistente virtual (opcional)
+### 2.13 Migración 014: extensiones temporales del horario
+
+Ejecuta [`migrations/014_extensiones_temporales_horario.sql`](migrations/014_extensiones_temporales_horario.sql)
+después de la migración 001. En el menú lateral, admin y jefe de taller pueden elegir a
+cualquier empleado y extender su acceso hasta una fecha y hora específicas en hora de
+Colombia. El permiso vence automáticamente; el empleado no puede concedérselo a sí mismo.
+
+> Aplica esta migración para habilitar el botón **Extender acceso**. Los empleados con una
+> sesión activa reciben las extensiones nuevas automáticamente; al llegar el vencimiento,
+> se cierra la sesión.
+
+### 2.14 Migración 015: fotos de perfil
+
+Ejecuta [`migrations/015_fotos_perfil.sql`](migrations/015_fotos_perfil.sql) después de la
+migración 001. Agrega el campo de foto al perfil y el bucket **fotos-perfil**. Cada empleado
+puede cargar y eliminar archivos solo dentro de su propia carpeta; las imágenes son visibles
+para mostrar el avatar en la aplicación. Se aceptan JPG, PNG y WEBP de hasta 3 MB.
+
+### 2.15 Edge Function del asistente virtual (opcional)
 
 El chatbot funciona sin IA con respuestas guiadas locales. Para activar la IA:
 
@@ -235,7 +253,7 @@ Luego, en **Supabase → Edge Functions → Secrets**, define:
 | `AI_BASE_URL` | No | Por defecto `https://api.openai.com/v1` |
 | `AI_MODEL` | No | Por defecto `gpt-4o-mini` |
 
-### 2.14 Restablecer contraseña de un colaborador
+### 2.16 Restablecer contraseña de un colaborador
 
 Despliega la función administrativa que permite al **Super Admin** asignar una nueva
 contraseña sin conocer la anterior:

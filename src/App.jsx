@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Bell,
   Box,
   Boxes,
   Building2,
+  CalendarClock,
   Calculator,
   ClipboardCheck,
   Globe,
@@ -23,6 +24,7 @@ import { supabase } from './lib/supabase';
 import { permisosDe, rolLegible, vistaInicial } from './lib/constants';
 import { cerrarSesion as cerrarSesionAuth } from './lib/auth';
 import { cargarNotificaciones } from './lib/notificaciones';
+import { dentroDelHorarioLaboral } from './lib/horarioAcceso';
 
 import Chatbot from './components/Chatbot';
 import Landing from './pages/Landing';
@@ -40,6 +42,8 @@ import OrdenesTrabajo from './pages/OrdenesTrabajo';
 import SistemasTrabajo from './pages/SistemasTrabajo';
 import PruebasSistema from './pages/PruebasSistema';
 import DespieceCalculadora from './pages/DespieceCalculadora';
+
+const ExtenderAccesoModal = lazy(() => import('./components/ExtenderAccesoModal'));
 
 const MENU = [
   {
@@ -135,8 +139,18 @@ export default function App() {
   const [noLeidas, setNoLeidas] = useState(0);
   // Menú lateral en pantallas angostas (drawer).
   const [menuAbierto, setMenuAbierto] = useState(false);
+  const [accesoFueraHorario, setAccesoFueraHorario] = useState(false);
+  const [relojHorario, setRelojHorario] = useState(() => Date.now());
+  const [modalExtensionHorario, setModalExtensionHorario] = useState(false);
+  const [extensionHorario, setExtensionHorario] = useState({
+    usuarioId: null,
+    venceEn: null,
+    verificadaUsuario: null,
+    error: '',
+  });
   // Evita resetear la vista cuando Supabase renueva el token o se reautentica
   const usuarioConVista = useRef(null);
+  const cierreHorarioUsuario = useRef(null);
 
   const cargarPerfil = useCallback(async (userId) => {
     const { data, error } = await supabase
@@ -225,6 +239,88 @@ export default function App() {
 
   const permisos = useMemo(() => permisosDe(perfil?.rol), [perfil?.rol]);
   const cuentaInactiva = Boolean(perfil && perfil.activo === false);
+  const rolExentoHorario = permisos.esAdmin || permisos.esJefe;
+  const usuarioId = session?.user?.id;
+  const extensionVerificada = rolExentoHorario || extensionHorario.verificadaUsuario === usuarioId;
+  const extensionActiva =
+    extensionHorario.usuarioId === usuarioId &&
+    Date.parse(extensionHorario.venceEn || '') > relojHorario;
+  const horarioAbierto =
+    dentroDelHorarioLaboral(new Date(relojHorario)) || extensionActiva;
+  const bloqueoPorHorario = Boolean(
+    session &&
+      perfil?.id === session.user.id &&
+      !rolExentoHorario &&
+      extensionVerificada &&
+      !horarioAbierto,
+  );
+
+  useEffect(() => {
+    if (!usuarioId || perfil?.id !== usuarioId) return undefined;
+    if (rolExentoHorario) return undefined;
+
+    let activo = true;
+    const consultarExtension = async () => {
+      const { data, error } = await supabase
+        .from('herramienta_accesos_extendidos')
+        .select('vence_en')
+        .eq('usuario_id', usuarioId)
+        .gt('vence_en', new Date().toISOString())
+        .order('vence_en', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (!activo) return;
+      setExtensionHorario({
+        usuarioId,
+        venceEn: error ? null : data?.vence_en ?? null,
+        verificadaUsuario: usuarioId,
+        error: error?.message || '',
+      });
+    };
+    consultarExtension();
+    const intervalo = setInterval(consultarExtension, 15000);
+    window.addEventListener('focus', consultarExtension);
+
+    return () => {
+      activo = false;
+      clearInterval(intervalo);
+      window.removeEventListener('focus', consultarExtension);
+    };
+  }, [usuarioId, perfil?.id, rolExentoHorario]);
+
+  useEffect(() => {
+    const revisarHorario = () => setRelojHorario(Date.now());
+    const intervalo = setInterval(revisarHorario, 15000);
+    window.addEventListener('focus', revisarHorario);
+    document.addEventListener('visibilitychange', revisarHorario);
+    return () => {
+      clearInterval(intervalo);
+      window.removeEventListener('focus', revisarHorario);
+      document.removeEventListener('visibilitychange', revisarHorario);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!usuarioId || perfil?.id !== usuarioId || !extensionVerificada) return;
+
+    if (rolExentoHorario || horarioAbierto) {
+      cierreHorarioUsuario.current = null;
+      return;
+    }
+
+    if (cierreHorarioUsuario.current === usuarioId) return;
+    cierreHorarioUsuario.current = usuarioId;
+    setAccesoFueraHorario(true);
+    setPantallaPublica('login');
+
+    (async () => {
+      const { error } = await supabase.auth.signOut();
+      if (error) {
+        setErrorPerfil(`El horario laboral terminó y no se pudo cerrar la sesión: ${error.message}`);
+      }
+    })();
+  }, [usuarioId, perfil?.id, rolExentoHorario, horarioAbierto, extensionVerificada]);
 
   const menuVisible = useMemo(
     () => (cuentaInactiva ? [] : MENU.filter((item) => item.permitido(permisos))),
@@ -285,6 +381,7 @@ export default function App() {
     setNoLeidas(0);
     setVistaActual('dashboard');
     setPantallaPublica('landing');
+    setAccesoFueraHorario(false);
   };
 
   if (cargando) {
@@ -292,6 +389,54 @@ export default function App() {
       <div className="min-h-screen bg-slate-950 flex items-center justify-center text-white">
         <p className="animate-pulse text-sm font-medium">Cargando YiKev Stratos ERP...</p>
       </div>
+    );
+  }
+
+  if (
+    session &&
+    (!perfil || perfil.id !== session.user.id || (!rolExentoHorario && !extensionVerificada)) &&
+    !errorPerfil
+  ) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center text-white">
+        <p className="animate-pulse text-sm font-medium">Verificando horario de acceso...</p>
+      </div>
+    );
+  }
+
+  if (accesoFueraHorario || bloqueoPorHorario) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-slate-950 p-4">
+        <section className="w-full max-w-md space-y-4 rounded-3xl border border-slate-800 bg-slate-900 p-6 text-center shadow-2xl">
+          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl border border-amber-500/20 bg-amber-500/10 text-amber-300">
+            <ShieldAlert size={22} />
+          </div>
+          <h1 className="text-lg font-black text-white">Acceso fuera del horario laboral</h1>
+          <p className="text-xs leading-5 text-slate-300">
+            {session
+              ? 'La jornada terminó y estamos cerrando tu sesión. '
+              : 'Tu sesión se cerró automáticamente. '}
+            El acceso para colaboradores está habilitado de lunes a viernes de 8:00 a. m. a
+            6:00 p. m. y los sábados de 8:00 a. m. a 2:00 p. m., hora de Colombia. Los domingos
+            no hay acceso.
+          </p>
+          {errorPerfil && (
+            <p role="alert" className="text-xs text-red-300">{errorPerfil}</p>
+          )}
+          {!session && (
+            <button
+              type="button"
+              onClick={() => {
+                setAccesoFueraHorario(false);
+                setErrorPerfil('');
+              }}
+              className="rounded-xl bg-blue-600 px-4 py-2.5 text-xs font-bold text-white hover:bg-blue-500"
+            >
+              Volver
+            </button>
+          )}
+        </section>
+      </main>
     );
   }
 
@@ -414,14 +559,38 @@ export default function App() {
             }}
             className="group w-full rounded-lg px-2 py-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
           >
-            <p className="truncate text-xs font-bold text-white group-hover:underline">
-              {perfil?.nombre_completo || session.user?.email || 'Colaborador'}
-            </p>
-            <span className="mt-1 inline-block rounded-md border border-blue-500/20 bg-blue-500/10 px-2 py-0.5 text-[10px] font-semibold text-blue-400">
-              {rolLegible(perfil?.rol) || 'Rol Operativo'}
+            <span className="flex items-center gap-2.5">
+              {perfil?.foto_perfil ? (
+                <img
+                  src={supabase.storage.from('fotos-perfil').getPublicUrl(perfil.foto_perfil).data.publicUrl}
+                  alt=""
+                  className="h-9 w-9 shrink-0 rounded-full border border-slate-700 object-cover"
+                />
+              ) : (
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-blue-500/20 bg-blue-600/10 text-xs font-black text-blue-300">
+                  {(perfil?.nombre_completo || 'C').charAt(0).toUpperCase()}
+                </span>
+              )}
+              <span className="min-w-0">
+                <span className="block truncate text-xs font-bold text-white group-hover:underline">
+                  {perfil?.nombre_completo || session.user?.email || 'Colaborador'}
+                </span>
+                <span className="mt-1 inline-block rounded-md border border-blue-500/20 bg-blue-500/10 px-2 py-0.5 text-[10px] font-semibold text-blue-400">
+                  {rolLegible(perfil?.rol) || 'Rol Operativo'}
+                </span>
+              </span>
             </span>
           </button>
 
+          {(permisos.esAdmin || permisos.esJefe) && (
+            <button
+              type="button"
+              onClick={() => setModalExtensionHorario(true)}
+              className="flex w-full items-center justify-center gap-2 rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs font-semibold text-amber-300 transition-all hover:bg-amber-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+            >
+              <CalendarClock size={16} /> Extender acceso
+            </button>
+          )}
           <button
             type="button"
             onClick={handleCerrarSesion}
@@ -571,6 +740,15 @@ export default function App() {
           vista: vistaEfectiva,
         }}
       />
+      {(permisos.esAdmin || permisos.esJefe) && modalExtensionHorario ? (
+        <Suspense fallback={null}>
+          <ExtenderAccesoModal
+            abierto
+            perfil={perfil}
+            onClose={() => setModalExtensionHorario(false)}
+          />
+        </Suspense>
+      ) : null}
     </div>
   );
 }

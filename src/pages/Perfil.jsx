@@ -2,20 +2,23 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   AlertCircle,
   CheckCircle,
+  Camera,
   CreditCard,
   Lock,
   Phone,
+  Trash2,
   User,
   Wrench,
 } from 'lucide-react';
 
 import { supabase } from '../lib/supabase';
-import { formatCOP, formatFecha } from '../lib/format';
+import { formatCOP, formatFecha, nuevoId } from '../lib/format';
 import { traducirErrorAuth, emailDesdeDocumento } from '../lib/auth';
 import { categoriaRol, rolLegible } from '../lib/constants';
 
 const PERFIL_INICIAL = {
   nombre_completo: '',
+  foto_perfil: null,
   documento_id: '',
   telefono: '',
   rol: '',
@@ -28,6 +31,7 @@ export default function Perfil({ session, onActualizado }) {
   const [perfil, setPerfil] = useState(PERFIL_INICIAL);
   const [cargando, setCargando] = useState(true);
   const [guardandoPerfil, setGuardandoPerfil] = useState(false);
+  const [procesandoFoto, setProcesandoFoto] = useState(false);
   const [guardandoPass, setGuardandoPass] = useState(false);
   const [mensajePerfil, setMensajePerfil] = useState({ texto: '', tipo: '' });
   const [mensajePass, setMensajePass] = useState({ texto: '', tipo: '' });
@@ -140,6 +144,110 @@ export default function Perfil({ session, onActualizado }) {
     }
   };
 
+  const handleFotoSeleccionada = async (evento) => {
+    const archivo = evento.target.files?.[0];
+    evento.target.value = '';
+    if (!archivo) return;
+
+    const tiposPermitidos = ['image/jpeg', 'image/png', 'image/webp'];
+    if (!tiposPermitidos.includes(archivo.type)) {
+      setMensajePerfil({
+        texto: 'La foto debe estar en formato JPG, PNG o WEBP.',
+        tipo: 'error',
+      });
+      return;
+    }
+    if (archivo.size > 3 * 1024 * 1024) {
+      setMensajePerfil({ texto: 'La foto no puede pesar más de 3 MB.', tipo: 'error' });
+      return;
+    }
+    if (!userId) return;
+
+    setProcesandoFoto(true);
+    setMensajePerfil({ texto: '', tipo: '' });
+    const rutaAnterior = perfil.foto_perfil;
+    const extension = archivo.type === 'image/png' ? 'png' : archivo.type === 'image/webp' ? 'webp' : 'jpg';
+    const rutaNueva = `${userId}/${nuevoId()}.${extension}`;
+
+    try {
+      const { error: errorSubida } = await supabase.storage
+        .from('fotos-perfil')
+        .upload(rutaNueva, archivo, { contentType: archivo.type, cacheControl: '3600' });
+      if (errorSubida) throw errorSubida;
+
+      const { error: errorPerfil } = await supabase
+        .from('perfiles_usuario')
+        .update({ foto_perfil: rutaNueva })
+        .eq('id', userId);
+      if (errorPerfil) {
+        const { error: errorLimpieza } = await supabase.storage
+          .from('fotos-perfil')
+          .remove([rutaNueva]);
+        if (errorLimpieza) {
+          throw new Error(
+            `${errorPerfil.message}. Además, no se pudo limpiar la foto subida: ${errorLimpieza.message}`,
+          );
+        }
+        throw errorPerfil;
+      }
+
+      setPerfil((actual) => ({ ...actual, foto_perfil: rutaNueva }));
+      if (rutaAnterior) {
+        const { error: errorEliminarAnterior } = await supabase.storage
+          .from('fotos-perfil')
+          .remove([rutaAnterior]);
+        if (errorEliminarAnterior) {
+          setMensajePerfil({
+            texto: `La foto se cambió, pero no se pudo eliminar la anterior: ${errorEliminarAnterior.message}`,
+            tipo: 'error',
+          });
+        } else {
+          setMensajePerfil({ texto: 'Foto de perfil actualizada.', tipo: 'exito' });
+        }
+      } else {
+        setMensajePerfil({ texto: 'Foto de perfil actualizada.', tipo: 'exito' });
+      }
+      if (onActualizado) await onActualizado();
+    } catch (error) {
+      setMensajePerfil({ texto: `No se pudo actualizar la foto: ${error.message}`, tipo: 'error' });
+    } finally {
+      setProcesandoFoto(false);
+    }
+  };
+
+  const handleEliminarFoto = async () => {
+    if (!userId || !perfil.foto_perfil || procesandoFoto) return;
+    setProcesandoFoto(true);
+    setMensajePerfil({ texto: '', tipo: '' });
+
+    try {
+      const rutaAnterior = perfil.foto_perfil;
+      const { error: errorPerfil } = await supabase
+        .from('perfiles_usuario')
+        .update({ foto_perfil: null })
+        .eq('id', userId);
+      if (errorPerfil) throw errorPerfil;
+
+      setPerfil((actual) => ({ ...actual, foto_perfil: null }));
+      const { error: errorEliminar } = await supabase.storage
+        .from('fotos-perfil')
+        .remove([rutaAnterior]);
+      if (errorEliminar) {
+        setMensajePerfil({
+          texto: `La foto se quitó del perfil, pero no se pudo borrar el archivo: ${errorEliminar.message}`,
+          tipo: 'error',
+        });
+      } else {
+        setMensajePerfil({ texto: 'Foto de perfil eliminada.', tipo: 'exito' });
+      }
+      if (onActualizado) await onActualizado();
+    } catch (error) {
+      setMensajePerfil({ texto: `No se pudo eliminar la foto: ${error.message}`, tipo: 'error' });
+    } finally {
+      setProcesandoFoto(false);
+    }
+  };
+
   const handleCambiarPassword = async (evento) => {
     evento.preventDefault();
     setMensajePass({ texto: '', tipo: '' });
@@ -201,6 +309,9 @@ export default function Perfil({ session, onActualizado }) {
   }
 
   const inicial = perfil.nombre_completo ? perfil.nombre_completo.charAt(0).toUpperCase() : 'U';
+  const fotoPerfilUrl = perfil.foto_perfil
+    ? supabase.storage.from('fotos-perfil').getPublicUrl(perfil.foto_perfil).data.publicUrl
+    : '';
 
   return (
     <div className="max-w-4xl mx-auto space-y-8 pb-12">
@@ -269,8 +380,18 @@ export default function Perfil({ session, onActualizado }) {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {/* Resumen */}
         <div className="bg-slate-900 border border-slate-800 p-6 rounded-3xl space-y-4 text-center md:text-left flex flex-col items-center md:items-start">
-          <div className="w-20 h-20 bg-blue-600/10 border border-blue-500/20 text-blue-500 rounded-full flex items-center justify-center text-2xl font-black shadow-lg">
-            {inicial}
+          <div className="relative">
+            {fotoPerfilUrl ? (
+              <img
+                src={fotoPerfilUrl}
+                alt={`Foto de ${perfil.nombre_completo || 'usuario'}`}
+                className="h-20 w-20 rounded-full border border-blue-500/30 object-cover shadow-lg"
+              />
+            ) : (
+              <div className="flex h-20 w-20 items-center justify-center rounded-full border border-blue-500/20 bg-blue-600/10 text-2xl font-black text-blue-500 shadow-lg">
+                {inicial}
+              </div>
+            )}
           </div>
           <div className="min-w-0 w-full">
             <h2 className="text-base font-bold text-white truncate">
@@ -343,6 +464,31 @@ export default function Perfil({ session, onActualizado }) {
                 {mensajePerfil.texto}
               </div>
             )}
+
+            <div className="flex flex-wrap items-center gap-3">
+              <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl bg-blue-600 px-3 py-2 text-xs font-bold text-white transition-colors hover:bg-blue-500">
+                <Camera size={15} />
+                {procesandoFoto ? 'Procesando foto...' : perfil.foto_perfil ? 'Cambiar foto' : 'Subir foto'}
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  onChange={handleFotoSeleccionada}
+                  disabled={procesandoFoto}
+                  className="sr-only"
+                />
+              </label>
+              {perfil.foto_perfil && (
+                <button
+                  type="button"
+                  onClick={handleEliminarFoto}
+                  disabled={procesandoFoto}
+                  className="inline-flex items-center gap-2 rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs font-semibold text-red-300 transition-colors hover:bg-red-500/20 disabled:opacity-50"
+                >
+                  <Trash2 size={14} /> Eliminar foto
+                </button>
+              )}
+              <p className="text-[10px] text-slate-500">JPG, PNG o WEBP; máximo 3 MB.</p>
+            </div>
 
             <form onSubmit={handleActualizarPerfil} className="space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
