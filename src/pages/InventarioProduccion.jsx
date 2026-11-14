@@ -20,6 +20,7 @@ import {
   COLORES_RETAL,
   UNIDADES_MEDIDA,
   permisosDe,
+  rolLegible,
 } from '../lib/constants';
 import { formatFechaHora, nuevoId } from '../lib/format';
 import { LARGO_BARRA_DEFECTO_CM } from '../lib/despiece';
@@ -1072,7 +1073,7 @@ export default function InventarioProduccion({ perfil, permisos: permisosProp })
                 <option value="">Sin asignar</option>
                 {colaboradores.map((colaborador) => (
                   <option key={colaborador.id} value={colaborador.id}>
-                    {colaborador.nombre_completo} · {colaborador.rol}
+                    {colaborador.nombre_completo} · {rolLegible(colaborador.rol)}
                   </option>
                 ))}
               </select>

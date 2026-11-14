@@ -20,7 +20,7 @@ import {
 } from 'lucide-react';
 
 import { supabase } from './lib/supabase';
-import { permisosDe, vistaInicial } from './lib/constants';
+import { permisosDe, rolLegible, vistaInicial } from './lib/constants';
 import { cerrarSesion as cerrarSesionAuth } from './lib/auth';
 import { cargarNotificaciones } from './lib/notificaciones';
 
@@ -335,7 +335,7 @@ export default function App() {
           <div className="min-w-0">
             <h2 className="text-xl font-black text-blue-500">YiKev Stratos</h2>
             <p className="mt-1 truncate text-[10px] font-semibold uppercase tracking-widest text-slate-400">
-              {perfil?.rol || 'Sin rol asignado'}
+              {rolLegible(perfil?.rol) || 'Sin rol asignado'}
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-1">
@@ -418,7 +418,7 @@ export default function App() {
               {perfil?.nombre_completo || session.user?.email || 'Colaborador'}
             </p>
             <span className="mt-1 inline-block rounded-md border border-blue-500/20 bg-blue-500/10 px-2 py-0.5 text-[10px] font-semibold text-blue-400">
-              {perfil?.rol || 'Rol Operativo'}
+              {rolLegible(perfil?.rol) || 'Rol Operativo'}
             </span>
           </button>
 
@@ -452,7 +452,7 @@ export default function App() {
               YiKev Stratos
             </p>
             <p className="truncate text-[10px] font-semibold uppercase tracking-widest text-slate-400">
-              {perfil?.rol || 'Sin rol asignado'}
+              {rolLegible(perfil?.rol) || 'Sin rol asignado'}
             </p>
           </div>
 

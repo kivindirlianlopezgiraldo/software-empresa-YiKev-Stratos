@@ -249,7 +249,8 @@ grant select, insert, update, delete on public.herramientas to authenticated;
 
 drop policy if exists "herramientas_select" on public.herramientas;
 create policy "herramientas_select" on public.herramientas
-  for select to authenticated using (true);
+  for select to authenticated
+  using (public.es_admin() or public.es_jefe() or colaborador_id = auth.uid());
 
 drop policy if exists "herramientas_write" on public.herramientas;
 create policy "herramientas_write" on public.herramientas

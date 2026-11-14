@@ -25,6 +25,7 @@ import {
   TALLAS,
   TALLAS_CALZADO,
   TIPOS_CONTRATO,
+  rolLegible,
 } from '../lib/constants';
 import { crearUsuarioAuth } from '../lib/auth';
 import { formatCOP, formatFecha, formatMiles, parseCOP, soloDigitos } from '../lib/format';
@@ -116,7 +117,7 @@ function desdeFila(colaborador) {
     fechaNacimiento: colaborador.fecha_nacimiento || '',
     direccion: colaborador.direccion || '',
     ciudad: colaborador.ciudad || '',
-    rol: colaborador.rol || ROLES.INSTALADOR,
+    rol: rolLegible(colaborador.rol) || ROLES.INSTALADOR,
     departamento: colaborador.departamento || DEPARTAMENTOS[0],
     tipoContrato: colaborador.tipo_contrato || '',
     fechaIngreso: colaborador.fecha_ingreso || '',
@@ -662,7 +663,7 @@ export default function Colaboradores({ perfil }) {
                       </td>
                       <td className="p-4">
                         <span className="inline-block px-2.5 py-1 rounded-md text-[10px] font-semibold bg-blue-500/10 border border-blue-500/20 text-blue-400 whitespace-nowrap">
-                          {colaborador.rol || 'Sin rol'}
+                          {rolLegible(colaborador.rol) || 'Sin rol'}
                         </span>
                         <p className="text-[10px] text-slate-400 mt-1">
                           {colaborador.departamento || 'General'}
@@ -782,7 +783,7 @@ export default function Colaboradores({ perfil }) {
               <div className="min-w-0 flex-1">
                 <h3 className="text-base font-bold text-white truncate">{ficha.nombre_completo}</h3>
                 <p className="text-xs text-slate-400">
-                  {ficha.rol || 'Sin rol'} · {ficha.departamento || 'General'}
+                  {rolLegible(ficha.rol) || 'Sin rol'} · {ficha.departamento || 'General'}
                 </p>
               </div>
               <span

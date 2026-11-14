@@ -38,6 +38,14 @@ const CASOS_ROL = [
     },
   },
   {
+    rol: 'PRODUCCIÃ“N',
+    esperado: {
+      esProduccion: true,
+      puedeVerHerramientas: true,
+      puedeUsarChecklists: true,
+    },
+  },
+  {
     rol: ROLES.INSTALADOR,
     esperado: {
       esSuperAdmin: false,

@@ -6,11 +6,13 @@ import {
   Lock,
   Phone,
   User,
+  Wrench,
 } from 'lucide-react';
 
 import { supabase } from '../lib/supabase';
 import { formatCOP, formatFecha } from '../lib/format';
 import { traducirErrorAuth, emailDesdeDocumento } from '../lib/auth';
+import { categoriaRol, rolLegible } from '../lib/constants';
 
 const PERFIL_INICIAL = {
   nombre_completo: '',
@@ -29,6 +31,9 @@ export default function Perfil({ session, onActualizado }) {
   const [guardandoPass, setGuardandoPass] = useState(false);
   const [mensajePerfil, setMensajePerfil] = useState({ texto: '', tipo: '' });
   const [mensajePass, setMensajePass] = useState({ texto: '', tipo: '' });
+  const [herramientas, setHerramientas] = useState([]);
+  const [cargandoHerramientas, setCargandoHerramientas] = useState(false);
+  const [errorHerramientas, setErrorHerramientas] = useState('');
 
   const [passwordActual, setPasswordActual] = useState('');
   const [nuevoPassword, setNuevoPassword] = useState('');
@@ -72,6 +77,39 @@ export default function Perfil({ session, onActualizado }) {
       activo = false;
     };
   }, [consultarPerfil, userId]);
+
+  useEffect(() => {
+    let activo = true;
+
+    if (!userId || categoriaRol(perfil.rol) !== 'produccion') return undefined;
+
+    (async () => {
+      setCargandoHerramientas(true);
+      setErrorHerramientas('');
+
+      try {
+        const { data, error } = await supabase
+          .from('herramientas')
+          .select('id, nombre, codigo, categoria, estado')
+          .eq('colaborador_id', userId)
+          .order('nombre', { ascending: true });
+
+        if (error) throw error;
+        if (activo) setHerramientas(data ?? []);
+      } catch (error) {
+        if (activo) {
+          setHerramientas([]);
+          setErrorHerramientas(`No se pudieron cargar tus herramientas: ${error.message}`);
+        }
+      } finally {
+        if (activo) setCargandoHerramientas(false);
+      }
+    })();
+
+    return () => {
+      activo = false;
+    };
+  }, [perfil.rol, userId]);
 
   const handleActualizarPerfil = async (evento) => {
     evento.preventDefault();
@@ -173,6 +211,61 @@ export default function Perfil({ session, onActualizado }) {
         </p>
       </div>
 
+      {categoriaRol(perfil.rol) === 'produccion' && (
+        <section className="overflow-hidden rounded-3xl border border-slate-800 bg-slate-900">
+          <div className="flex items-center justify-between gap-3 border-b border-slate-800 px-5 py-4">
+            <div className="flex items-center gap-2.5">
+              <Wrench size={18} className="text-cyan-400" />
+              <div>
+                <h2 className="text-sm font-bold text-white">Mis herramientas asignadas</h2>
+                <p className="mt-0.5 text-[11px] text-slate-400">
+                  Herramientas que están actualmente a tu cargo.
+                </p>
+              </div>
+            </div>
+            {!cargandoHerramientas && !errorHerramientas && (
+              <span className="rounded-full bg-cyan-500/10 px-2.5 py-1 text-[10px] font-bold text-cyan-300">
+                {herramientas.length}
+              </span>
+            )}
+          </div>
+
+          {errorHerramientas ? (
+            <p role="alert" className="px-5 py-4 text-xs text-red-300">
+              {errorHerramientas}
+            </p>
+          ) : cargandoHerramientas ? (
+            <p className="px-5 py-4 text-xs text-slate-400">Cargando tus herramientas...</p>
+          ) : herramientas.length === 0 ? (
+            <p className="px-5 py-4 text-xs text-slate-400">
+              No tienes herramientas asignadas en este momento.
+            </p>
+          ) : (
+            <ul className="grid gap-px bg-slate-800 sm:grid-cols-2">
+              {herramientas.map((herramienta) => (
+                <li
+                  key={herramienta.id}
+                  className="flex items-center justify-between gap-3 bg-slate-900 px-5 py-4"
+                >
+                  <div className="flex min-w-0 items-start gap-2.5">
+                    <Wrench size={15} className="mt-0.5 shrink-0 text-cyan-400" />
+                    <div className="min-w-0">
+                      <p className="truncate text-xs font-semibold text-white">{herramienta.nombre}</p>
+                      <p className="mt-1 truncate text-[10px] text-slate-500">
+                        {herramienta.codigo || 'Sin código'} · {herramienta.categoria}
+                      </p>
+                    </div>
+                  </div>
+                  <span className="shrink-0 rounded-md border border-blue-500/20 bg-blue-500/10 px-2 py-1 text-[10px] font-bold text-blue-300">
+                    {herramienta.estado}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {/* Resumen */}
         <div className="bg-slate-900 border border-slate-800 p-6 rounded-3xl space-y-4 text-center md:text-left flex flex-col items-center md:items-start">
@@ -188,7 +281,9 @@ export default function Perfil({ session, onActualizado }) {
           <div className="w-full pt-4 border-t border-slate-800 space-y-2 text-xs">
             <div className="flex justify-between gap-2">
               <span className="text-slate-500">Rol:</span>
-              <span className="font-semibold text-blue-400 text-right">{perfil.rol || '—'}</span>
+              <span className="font-semibold text-blue-400 text-right">
+                {rolLegible(perfil.rol) || '—'}
+              </span>
             </div>
             <div className="flex justify-between gap-2">
               <span className="text-slate-500">Departamento:</span>

@@ -12,7 +12,7 @@ import {
 } from 'lucide-react';
 
 import { supabase } from '../lib/supabase';
-import { ESTADOS } from '../lib/constants';
+import { ESTADOS, rolLegible } from '../lib/constants';
 
 const METRICAS_INICIALES = {
   totalOrdenes: 0,
@@ -130,7 +130,7 @@ export default function Dashboard({ perfil }) {
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-slate-900 border border-slate-800 p-6 rounded-3xl shadow-xl">
         <div>
           <span className="px-3 py-1 bg-blue-500/10 border border-blue-500/20 text-blue-400 text-[10px] font-bold rounded-lg uppercase tracking-wider">
-            {perfil?.rol || 'Sin rol'}
+            {rolLegible(perfil?.rol) || 'Sin rol'}
           </span>
           <h1 className="text-2xl font-black text-white mt-2">
             ¡Bienvenido, {perfil?.nombre_completo || 'Colaborador'}!

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import {
   AlertCircle,
   ArrowDownLeft,
@@ -17,19 +17,27 @@ import {
   Search,
   Trash2,
   User,
+  Users,
   Wrench,
   X,
 } from 'lucide-react';
 
 import { supabase } from '../lib/supabase';
 import { imprimirActaHerramientas } from '../lib/actaHerramientas';
-import { CATEGORIAS_HERRAMIENTA, ESTADOS_HERRAMIENTA, categoriaRol } from '../lib/constants';
+import {
+  CATEGORIAS_HERRAMIENTA,
+  ESTADOS_HERRAMIENTA,
+  categoriaRol,
+  rolLegible,
+} from '../lib/constants';
 import { formatFechaHora, nuevoId } from '../lib/format';
 
 import Toast from '../components/Toast';
 import Modal from '../components/Modal';
 import useToast from '../hooks/useToast';
 import useConfirm from '../hooks/useConfirm';
+
+const InstalacionesHerramientas = lazy(() => import('./InstalacionesHerramientas'));
 
 const FORM_HERRAMIENTA = {
   nombre: '',
@@ -77,7 +85,7 @@ const FORM_KIT = {
   nombre: '',
   rolDestino: 'instalador',
   descripcion: '',
-  items: '',
+  items: [{ nombre: '', cantidad: 1 }],
 };
 
 const ETIQUETAS_ROL = {
@@ -99,6 +107,13 @@ function normalizarTexto(valor) {
 
 function explicarError(err) {
   const texto = err?.message || '';
+  if (/herramienta_kits/i.test(texto)) {
+    return (
+      'Falta aplicar la migración 007 de kits de herramientas en Supabase. ' +
+      'Ejecuta supabase/migrations/007_herramientas_kits.sql después de las migraciones 005 y 006. ' +
+      `Detalle: ${texto}`
+    );
+  }
   if (/herramienta|checklist|inventario_produccion|columna|relation|does not exist/i.test(texto)) {
     return (
       'Falta aplicar la migración 005 en Supabase (herramientas, checklists y producción). ' +
@@ -178,6 +193,25 @@ export default function Herramientas({ perfil, permisos }) {
 
   const puedeAsignar = permisos?.puedeAsignarHerramientas;
   const puedeUsar = permisos?.puedeUsarChecklists;
+  const colaboradoresTaller = useMemo(
+    () => colaboradores.filter((colaborador) => categoriaRol(colaborador.rol) !== 'instalador'),
+    [colaboradores],
+  );
+  const colaboradoresHerramienta = useMemo(
+    () => {
+      const colaboradorActual = colaboradores.find(
+        (colaborador) => colaborador.id === herramientaEditando?.colaborador_id,
+      );
+      if (
+        colaboradorActual &&
+        !colaboradoresTaller.some((colaborador) => colaborador.id === colaboradorActual.id)
+      ) {
+        return [...colaboradoresTaller, colaboradorActual];
+      }
+      return colaboradoresTaller;
+    },
+    [colaboradores, colaboradoresTaller, herramientaEditando?.colaborador_id],
+  );
 
   const consultar = useCallback(async () => {
     const [
@@ -199,7 +233,7 @@ export default function Herramientas({ perfil, permisos }) {
           .limit(120),
         supabase
           .from('perfiles_usuario')
-          .select('id, nombre_completo, documento_id, rol, cargo, activo')
+          .select('id, nombre_completo, documento_id, rol, activo')
           .order('nombre_completo', { ascending: true }),
         supabase
           .from('herramienta_movimientos')
@@ -216,6 +250,8 @@ export default function Herramientas({ perfil, permisos }) {
       ]);
 
     if (resHerramientas.error) throw resHerramientas.error;
+    if (resColaboradores.error) throw resColaboradores.error;
+    if (resKits.error) throw resKits.error;
 
     return {
       herramientas: resHerramientas.data ?? [],
@@ -224,7 +260,7 @@ export default function Herramientas({ perfil, permisos }) {
       colaboradores: resColaboradores.error ? [] : resColaboradores.data ?? [],
       movimientos: resMovimientos.error ? [] : resMovimientos.data ?? [],
       ordenes: resOrdenes.error ? [] : resOrdenes.data ?? [],
-      kits: resKits.error ? [] : resKits.data ?? [],
+      kits: resKits.data ?? [],
       empresa: resEmpresa.error ? null : (resEmpresa.data ?? [])[0] ?? null,
     };
   }, []);
@@ -480,8 +516,15 @@ export default function Herramientas({ perfil, permisos }) {
     setModalSalida(true);
   };
 
+  const abrirSalidaPara = (colaboradorId) => {
+    setFormSalida({ ...FORM_SALIDA, colaboradorId });
+    setErrorSalida('');
+    setModalSalida(true);
+  };
+
   const guardarSalida = async (evento) => {
     evento.preventDefault();
+    if (guardando) return;
     const colaborador = colaboradores.find((c) => c.id === formSalida.colaboradorId);
     const seleccionadas = herramientas.filter((h) =>
       formSalida.herramientaIds.includes(h.id),
@@ -662,13 +705,12 @@ export default function Herramientas({ perfil, permisos }) {
       nombre: kit.nombre || '',
       rolDestino: kit.rol_destino || 'instalador',
       descripcion: kit.descripcion || '',
-      items: (kit.items || [])
-        .map((item) => {
-          const nombre = item?.nombre ?? String(item ?? '');
-          const cantidad = Number(item?.cantidad) || 1;
-          return cantidad > 1 ? `${nombre} | ${cantidad}` : nombre;
-        })
-        .join('\n'),
+      items: (kit.items || []).length
+        ? kit.items.map((item) => ({
+            nombre: item?.nombre ?? String(item ?? ''),
+            cantidad: Math.max(1, Number(item?.cantidad) || 1),
+          }))
+        : [{ nombre: '', cantidad: 1 }],
     });
     setErrorKit('');
     setModalKit(true);
@@ -683,16 +725,10 @@ export default function Herramientas({ perfil, permisos }) {
     }
 
     const items = formKit.items
-      .split('\n')
-      .map((linea) => linea.trim())
-      .filter(Boolean)
-      .map((linea) => {
-        const [nombreItem, cantidadTexto] = linea.split('|');
-        return {
-          nombre: (nombreItem || '').trim(),
-          cantidad: Math.max(1, Math.round(Number(cantidadTexto) || 1)),
-        };
-      })
+      .map((item) => ({
+        nombre: item.nombre.trim(),
+        cantidad: Math.max(1, Math.round(Number(item.cantidad) || 1)),
+      }))
       .filter((item) => item.nombre);
 
     if (!items.length) {
@@ -982,6 +1018,28 @@ export default function Herramientas({ perfil, permisos }) {
     });
   }, [herramientas, busqueda, filtroEstado]);
 
+  const herramientasPorEmpleado = useMemo(() => {
+    const empleadosProduccion = colaboradores.filter(
+      (colaborador) => categoriaRol(colaborador.rol) === 'produccion',
+    );
+    const empleadosPorId = new Map(empleadosProduccion.map((empleado) => [empleado.id, empleado]));
+    const herramientasPorId = new Map(empleadosProduccion.map((empleado) => [empleado.id, new Map()]));
+
+    herramientas.forEach((herramienta) => {
+      if (!herramienta.colaborador_id || !herramientasPorId.has(herramienta.colaborador_id)) return;
+      herramientasPorId.get(herramienta.colaborador_id).set(herramienta.id, herramienta);
+    });
+
+    return Array.from(empleadosPorId.values())
+      .sort((a, b) => String(a.nombre_completo).localeCompare(String(b.nombre_completo), 'es'))
+      .map((empleado) => ({
+        ...empleado,
+        herramientas: Array.from(herramientasPorId.get(empleado.id).values()).sort((a, b) =>
+          String(a.nombre).localeCompare(String(b.nombre), 'es'),
+        ),
+      }));
+  }, [colaboradores, herramientas]);
+
   const resumen = useMemo(
     () => ({
       total: herramientas.length,
@@ -1022,14 +1080,10 @@ export default function Herramientas({ perfil, permisos }) {
     [plantillas, formEntrada.plantillaId],
   );
 
-  const kitsSalida = useMemo(() => {
-    const colaborador = colaboradores.find((c) => c.id === formSalida.colaboradorId);
-    if (!colaborador) return kits;
-    const categoria = categoriaRol(colaborador.rol);
-    return kits.filter(
-      (kit) => kit.rol_destino === categoria || kit.rol_destino === 'otro',
-    );
-  }, [kits, colaboradores, formSalida.colaboradorId]);
+  const kitsSalida = useMemo(
+    () => kits.filter((kit) => kit.activo !== false),
+    [kits],
+  );
 
   const lotes = useMemo(() => {
     const mapa = new Map();
@@ -1079,6 +1133,12 @@ export default function Herramientas({ perfil, permisos }) {
 
   const TABS = [
     { id: 'herramientas', etiqueta: 'Herramientas', Icono: Wrench },
+    ...(puedeAsignar
+      ? [
+          { id: 'asignadas', etiqueta: 'Asignadas a producción', Icono: Users },
+          { id: 'instalaciones', etiqueta: 'Instalaciones', Icono: Package },
+        ]
+      : []),
     { id: 'kits', etiqueta: 'Kits por rol', Icono: Package },
     { id: 'checklists', etiqueta: 'Checklists', Icono: ClipboardCheck },
     { id: 'registros', etiqueta: 'Registros', Icono: ClipboardList },
@@ -1331,6 +1391,133 @@ export default function Herramientas({ perfil, permisos }) {
             </div>
           </div>
         </>
+      )}
+
+      {tab === 'asignadas' && puedeAsignar && (
+        <section className="space-y-4">
+          <div className="flex flex-col gap-1">
+            <h2 className="text-sm font-bold text-white">Herramientas por empleado de producción</h2>
+            <p className="text-xs text-slate-400">
+              Cada herramienta del inventario aparece una sola vez bajo el empleado que la tiene asignada.
+            </p>
+          </div>
+
+          {cargando ? (
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-8 text-center text-xs text-slate-500">
+              Cargando asignaciones...
+            </div>
+          ) : herramientasPorEmpleado.length === 0 ? (
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-8 text-center text-xs text-slate-500">
+              No hay empleados activos de producción registrados.
+            </div>
+          ) : (
+            <div className="grid gap-3 lg:grid-cols-2">
+              {herramientasPorEmpleado.map((empleado) => (
+                <article
+                  key={empleado.id}
+                  className="overflow-hidden rounded-2xl border border-slate-800 bg-slate-900"
+                >
+                  <header className="flex items-center justify-between gap-3 border-b border-slate-800 px-4 py-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-bold text-white">{empleado.nombre_completo}</p>
+                      <p className="mt-0.5 text-[10px] text-slate-500">
+                        {rolLegible(empleado.rol)} · {empleado.herramientas.length}{' '}
+                        {empleado.herramientas.length === 1 ? 'herramienta' : 'herramientas'}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => abrirSalidaPara(empleado.id)}
+                      className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-2 text-[10px] font-bold text-white transition-colors hover:bg-blue-500"
+                    >
+                      <Plus size={13} /> Asignar
+                    </button>
+                  </header>
+
+                  {empleado.herramientas.length === 0 ? (
+                    <p className="px-4 py-5 text-center text-[11px] text-slate-500">
+                      Este empleado no tiene herramientas asignadas.
+                    </p>
+                  ) : (
+                    <ul className="divide-y divide-slate-800/70">
+                      {empleado.herramientas.map((herramienta) => (
+                        <li
+                          key={herramienta.id}
+                          className="flex items-center justify-between gap-3 px-4 py-3"
+                        >
+                          <div className="flex min-w-0 items-start gap-2.5">
+                            <Wrench size={15} className="mt-0.5 shrink-0 text-cyan-400" />
+                            <div className="min-w-0">
+                              <p className="truncate text-xs font-semibold text-white">
+                                {herramienta.nombre}
+                              </p>
+                              <p className="mt-1 truncate text-[10px] text-slate-500">
+                                {herramienta.codigo || 'Sin código'} · {herramienta.categoria}
+                              </p>
+                              <div className="mt-1.5">
+                                <EstadoBadge estado={herramienta.estado} />
+                              </div>
+                            </div>
+                          </div>
+                          <div className="flex shrink-0 items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => devolverHerramienta(herramienta)}
+                              title="Devolver al inventario"
+                              aria-label={`Devolver ${herramienta.nombre}`}
+                              className="rounded-lg bg-emerald-500/10 p-2 text-emerald-400 transition-colors hover:bg-emerald-500/20"
+                            >
+                              <RotateCcw size={14} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => abrirEditarHerramienta(herramienta)}
+                              title="Editar herramienta o asignación"
+                              aria-label={`Editar ${herramienta.nombre}`}
+                              className="rounded-lg bg-slate-800 p-2 text-slate-300 transition-colors hover:bg-slate-700"
+                            >
+                              <Edit2 size={14} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => eliminarHerramienta(herramienta)}
+                              title="Eliminar herramienta"
+                              aria-label={`Eliminar ${herramienta.nombre}`}
+                              className="rounded-lg bg-red-500/10 p-2 text-red-400 transition-colors hover:bg-red-500/20"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
+
+      {tab === 'instalaciones' && puedeAsignar && (
+        <Suspense
+          fallback={
+            <p className="rounded-2xl border border-slate-800 bg-slate-900 p-6 text-center text-xs text-slate-400">
+              Cargando el módulo de instalaciones...
+            </p>
+          }
+        >
+          <InstalacionesHerramientas
+            perfil={perfil}
+            colaboradores={colaboradores}
+            herramientas={herramientas}
+            ordenes={ordenes}
+            kits={kits}
+            plantillas={plantillas}
+            onAdminKits={() => setTab('kits')}
+            onRefrescar={refrescar}
+          />
+        </Suspense>
       )}
 
       {tab === 'kits' && (
@@ -1719,7 +1906,7 @@ export default function Herramientas({ perfil, permisos }) {
         onClose={() => setModalHerramienta(false)}
         icono={<Wrench size={20} />}
         titulo={herramientaEditando ? 'Editar herramienta' : 'Nueva herramienta'}
-        subtitulo="Registra la herramienta y asígnala a un colaborador de producción o instalación."
+        subtitulo="Registra la herramienta y, si corresponde, asígnala a producción. Las salidas de instalación se gestionan por orden."
         ancho="max-w-lg"
       >
         <form onSubmit={guardarHerramienta} className="space-y-4">
@@ -1823,12 +2010,22 @@ export default function Herramientas({ perfil, permisos }) {
                 className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-blue-500"
               >
                 <option value="">Sin asignar (disponible)</option>
-                {colaboradores.map((colaborador) => (
+                {colaboradoresHerramienta.length === 0 && (
+                  <option value="" disabled>
+                    No hay colaboradores de producción activos
+                  </option>
+                )}
+                {colaboradoresHerramienta.map((colaborador) => (
                   <option key={colaborador.id} value={colaborador.id}>
-                    {colaborador.nombre_completo} · {colaborador.rol}
+                    {colaborador.nombre_completo} · {rolLegible(colaborador.rol)}
                   </option>
                 ))}
               </select>
+              {colaboradoresHerramienta.length === 0 && (
+                <p className="mt-1 text-[10px] text-amber-300">
+                  Registra o activa al empleado de producción en la sección Empleados para poder asignarle herramientas.
+                </p>
+              )}
             </div>
 
             <div className="sm:col-span-2">
@@ -2020,7 +2217,7 @@ export default function Herramientas({ perfil, permisos }) {
                 <option value="">Selecciona...</option>
                 {colaboradores.map((colaborador) => (
                   <option key={colaborador.id} value={colaborador.id}>
-                    {colaborador.nombre_completo} · {colaborador.rol}
+                    {colaborador.nombre_completo} · {rolLegible(colaborador.rol)}
                   </option>
                 ))}
               </select>
@@ -2130,7 +2327,7 @@ export default function Herramientas({ perfil, permisos }) {
         onClose={() => setModalSalida(false)}
         icono={<ArrowUpRight size={20} />}
         titulo="Registrar salida de herramientas"
-        subtitulo="Marca de la lista las herramientas que se lleva el colaborador."
+        subtitulo="Selecciona una o varias herramientas disponibles para asignárselas al colaborador."
         ancho="max-w-xl"
       >
         <form onSubmit={guardarSalida} className="space-y-4">
@@ -2166,9 +2363,9 @@ export default function Herramientas({ perfil, permisos }) {
                 required
               >
                 <option value="">Selecciona...</option>
-                {colaboradores.map((colaborador) => (
+                {colaboradoresTaller.map((colaborador) => (
                   <option key={colaborador.id} value={colaborador.id}>
-                    {colaborador.nombre_completo} · {colaborador.rol}
+                    {colaborador.nombre_completo} · {rolLegible(colaborador.rol)}
                   </option>
                 ))}
               </select>
@@ -2227,7 +2424,7 @@ export default function Herramientas({ perfil, permisos }) {
               ))}
             </select>
             <p className="text-[10px] text-slate-500 mt-1">
-              Al elegir un kit se marcan solas las herramientas disponibles que coincidan.
+              Se muestran kits de todas las áreas. Al elegir uno, se marcan las herramientas disponibles que coincidan.
             </p>
           </div>
 
@@ -2298,6 +2495,15 @@ export default function Herramientas({ perfil, permisos }) {
             <p className="text-[10px] text-slate-500 mt-1">
               {formSalida.herramientaIds.length} seleccionada(s)
             </p>
+            {disponiblesSalida.length === 0 ? (
+              <p role="status" className="mt-2 rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-[10px] text-amber-200">
+                No se puede registrar la salida porque no hay herramientas disponibles. Devuelve una herramienta asignada o registra una nueva en el inventario.
+              </p>
+            ) : formSalida.herramientaIds.length === 0 ? (
+              <p role="status" className="mt-2 text-[10px] text-amber-200">
+                Selecciona al menos una herramienta para habilitar el registro de salida.
+              </p>
+            ) : null}
           </div>
 
           <div>
@@ -2388,10 +2594,21 @@ export default function Herramientas({ perfil, permisos }) {
             </button>
             <button
               type="submit"
-              disabled={guardando}
-              className="px-5 py-2.5 bg-cyan-700 hover:bg-cyan-800 text-white rounded-xl text-xs font-bold shadow-lg shadow-cyan-600/20 disabled:opacity-50 transition-colors"
+              disabled={
+                guardando ||
+                !formSalida.colaboradorId ||
+                !formSalida.herramientaIds.length ||
+                !disponiblesSalida.length
+              }
+              className="px-5 py-2.5 bg-cyan-700 hover:bg-cyan-800 text-white rounded-xl text-xs font-bold shadow-lg shadow-cyan-600/20 disabled:cursor-not-allowed disabled:opacity-50 transition-colors"
             >
-              {guardando ? 'Guardando...' : 'Registrar salida'}
+              {guardando
+                ? 'Guardando...'
+                : !disponiblesSalida.length
+                  ? 'Sin herramientas disponibles'
+                  : !formSalida.herramientaIds.length
+                    ? 'Selecciona herramientas'
+                    : 'Registrar salida'}
             </button>
           </div>
         </form>
@@ -2438,9 +2655,9 @@ export default function Herramientas({ perfil, permisos }) {
               required
             >
               <option value="">Selecciona...</option>
-              {colaboradores.map((colaborador) => (
+              {colaboradoresTaller.map((colaborador) => (
                 <option key={colaborador.id} value={colaborador.id}>
-                  {colaborador.nombre_completo} · {colaborador.rol}
+                  {colaborador.nombre_completo} · {rolLegible(colaborador.rol)}
                 </option>
               ))}
             </select>
@@ -2622,7 +2839,7 @@ export default function Herramientas({ perfil, permisos }) {
         onClose={() => setModalKit(false)}
         icono={<Package size={20} />}
         titulo={kitEditando ? 'Editar kit por rol' : 'Nuevo kit por rol'}
-        subtitulo="Herramientas recomendadas para un área, una por línea."
+        subtitulo="Agrega las herramientas del kit una por una."
         ancho="max-w-lg"
       >
         <form onSubmit={guardarKit} className="space-y-4">
@@ -2699,30 +2916,87 @@ export default function Herramientas({ perfil, permisos }) {
             />
           </div>
 
-          <div>
-            <label
-              htmlFor="kit-items"
-              className="block text-xs font-semibold text-slate-300 mb-1"
-            >
-              Herramientas <span className="text-red-400">*</span>
-            </label>
-            <textarea
-              id="kit-items"
-              rows="6"
-              value={formKit.items}
-              onChange={(evento) =>
-                setFormKit((prev) => ({ ...prev, items: evento.target.value }))
-              }
-              placeholder={'Taladro\nNivel láser\nCinta métrica | 2\nArnés'}
-              className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-xs text-white focus:outline-none focus:border-blue-500 resize-none font-mono"
-              required
-            />
-            <p className="text-[10px] text-slate-500 mt-1">
-              Una por línea. Usa <span className="font-mono">| cantidad</span> si necesitas más
-              de una, por ejemplo <span className="font-mono">Cinta métrica | 2</span>. El nombre
-              se compara con el catálogo; “Taladro” encuentra “Taladro percutor Bosch”.
+          <fieldset className="space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <legend className="text-xs font-semibold text-slate-300">
+                Herramientas <span className="text-red-400">*</span>
+              </legend>
+              <button
+                type="button"
+                onClick={() =>
+                  setFormKit((prev) => ({
+                    ...prev,
+                    items: [...prev.items, { nombre: '', cantidad: 1 }],
+                  }))
+                }
+                className="inline-flex items-center gap-1 rounded-lg bg-blue-500/10 px-2.5 py-1.5 text-[10px] font-bold text-blue-300 hover:bg-blue-500/20"
+              >
+                <Plus size={12} /> Agregar herramienta
+              </button>
+            </div>
+            <div className="max-h-52 space-y-2 overflow-y-auto rounded-xl border border-slate-800 bg-slate-950 p-2">
+              {formKit.items.map((item, index) => (
+                <div key={index} className="flex items-center gap-2">
+                  <label className="sr-only" htmlFor={`kit-item-nombre-${index}`}>
+                    Nombre de herramienta {index + 1}
+                  </label>
+                  <input
+                    id={`kit-item-nombre-${index}`}
+                    type="text"
+                    value={item.nombre}
+                    onChange={(evento) =>
+                      setFormKit((prev) => ({
+                        ...prev,
+                        items: prev.items.map((fila, filaIndex) =>
+                          filaIndex === index ? { ...fila, nombre: evento.target.value } : fila,
+                        ),
+                      }))
+                    }
+                    placeholder={`Herramienta ${index + 1}`}
+                    className="min-w-0 flex-1 rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-xs text-white focus:border-blue-500 focus:outline-none"
+                  />
+                  <label className="sr-only" htmlFor={`kit-item-cantidad-${index}`}>
+                    Cantidad de {item.nombre || `herramienta ${index + 1}`}
+                  </label>
+                  <input
+                    id={`kit-item-cantidad-${index}`}
+                    type="number"
+                    min="1"
+                    step="1"
+                    value={item.cantidad}
+                    onChange={(evento) =>
+                      setFormKit((prev) => ({
+                        ...prev,
+                        items: prev.items.map((fila, filaIndex) =>
+                          filaIndex === index ? { ...fila, cantidad: evento.target.value } : fila,
+                        ),
+                      }))
+                    }
+                    aria-label={`Cantidad de ${item.nombre || `herramienta ${index + 1}`}`}
+                    className="w-16 rounded-lg border border-slate-800 bg-slate-900 px-2 py-2 text-center text-xs text-white focus:border-blue-500 focus:outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setFormKit((prev) => ({
+                        ...prev,
+                        items: prev.items.filter((_, filaIndex) => filaIndex !== index),
+                      }))
+                    }
+                    disabled={formKit.items.length === 1}
+                    aria-label={`Quitar ${item.nombre || `herramienta ${index + 1}`}`}
+                    title="Quitar herramienta"
+                    className="rounded-lg bg-red-500/10 p-2 text-red-400 hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              ))}
+            </div>
+            <p className="text-[10px] text-slate-500">
+              Escribe cada herramienta en su propia fila y ajusta la cantidad. El nombre se compara con el catálogo; “Taladro” encuentra “Taladro percutor Bosch”.
             </p>
-          </div>
+          </fieldset>
 
           <div className="flex justify-end gap-3 pt-4 border-t border-slate-800">
             <button

@@ -189,7 +189,37 @@ Después de ejecutarla, la migración solicita recargar la caché del esquema de
 ejecutaste y la app sigue mostrando que falta `material_nombre`, ejecuta
 `NOTIFY pgrst, 'reload schema';` en el SQL Editor y vuelve a intentar guardar.
 
-### 2.10 Edge Function del asistente virtual (opcional)
+### 2.10 Migración 011: privacidad de herramientas asignadas
+
+Ejecuta [`migrations/011_privacidad_herramientas_asignadas.sql`](migrations/011_privacidad_herramientas_asignadas.sql)
+después de la migración 010. Limita la lectura de herramientas: admin y jefe de taller
+pueden consultar todo el inventario; cada colaborador solo ve las herramientas asignadas
+a su propio usuario. Las herramientas disponibles y las asignadas a otras personas no se
+exponen a otros colaboradores.
+
+> Si ya tienes una base en uso, ejecuta esta migración en Supabase para que el cambio de
+> privacidad quede activo en el servidor.
+
+### 2.11 Migración 012: kits y salidas de instalación
+
+Ejecuta [`migrations/012_salidas_instalacion_con_kits.sql`](migrations/012_salidas_instalacion_con_kits.sql)
+después de la migración 011. Agrega el apartado **Instalaciones** para admin y jefe de taller:
+cada salida se vincula a una orden, un instalador y un kit; exige completar el chequeo de
+salida, reserva las herramientas en una operación transaccional y exige el chequeo de retorno
+para cerrar la instalación. Los registros también aparecen en movimientos y checklists.
+
+> Configura kits de destino **Instalación** en **Herramientas → Kits por rol** y activa una
+> plantilla de salida y otra de entrada en **Checklists** antes de registrar una visita.
+
+### 2.12 Migración 013: reparación de textos de kits y checklists
+
+Si ves palabras con acentos que se muestran como símbolos dañados, ejecuta
+[`migrations/013_corregir_textos_checklists_y_kits.sql`](migrations/013_corregir_textos_checklists_y_kits.sql)
+después de las migraciones 005 y 007. Corrige secuencias de caracteres dañadas en los
+nombres y puntos de verificación guardados, además de los nombres y elementos de los kits.
+No reemplaza checklists ni kits completos.
+
+### 2.13 Edge Function del asistente virtual (opcional)
 
 El chatbot funciona sin IA con respuestas guiadas locales. Para activar la IA:
 
@@ -205,7 +235,7 @@ Luego, en **Supabase → Edge Functions → Secrets**, define:
 | `AI_BASE_URL` | No | Por defecto `https://api.openai.com/v1` |
 | `AI_MODEL` | No | Por defecto `gpt-4o-mini` |
 
-### 2.11 Restablecer contraseña de un colaborador
+### 2.14 Restablecer contraseña de un colaborador
 
 Despliega la función administrativa que permite al **Super Admin** asignar una nueva
 contraseña sin conocer la anterior:

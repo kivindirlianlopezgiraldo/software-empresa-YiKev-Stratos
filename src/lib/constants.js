@@ -210,10 +210,47 @@ export const CATEGORIAS_INVENTARIO_PRODUCCION = [
   'Seguridad industrial',
 ];
 
-// Normaliza tildes y mayúsculas: "Producción" -> "produccion".
-// Sin esto, los roles con tilde no coincidían con los permisos esperados.
+const BYTE_WINDOWS_1252 = {
+  '€': 0x80,
+  '‚': 0x82,
+  'ƒ': 0x83,
+  '„': 0x84,
+  '…': 0x85,
+  '†': 0x86,
+  '‡': 0x87,
+  'ˆ': 0x88,
+  '‰': 0x89,
+  Š: 0x8a,
+  '‹': 0x8b,
+  Œ: 0x8c,
+  Ž: 0x8e,
+  '‘': 0x91,
+  '’': 0x92,
+  '“': 0x93,
+  '”': 0x94,
+  '•': 0x95,
+  '–': 0x96,
+  '—': 0x97,
+  '˜': 0x98,
+  '™': 0x99,
+  š: 0x9a,
+  '›': 0x9b,
+  œ: 0x9c,
+  ž: 0x9e,
+  Ÿ: 0x9f,
+};
+
+export function rolLegible(rol) {
+  return String(rol || '').replace(/Ã(.)/g, (secuencia, caracter) => {
+    const byte = BYTE_WINDOWS_1252[caracter] ?? caracter.charCodeAt(0);
+    if (byte < 0x80 || byte > 0xbf) return secuencia;
+    return String.fromCodePoint(0xc0 + (byte & 0x3f));
+  });
+}
+
+// Normaliza tildes, mayúsculas y roles que quedaron guardados con codificación incorrecta.
 const normalizar = (rol) =>
-  (rol || '')
+  rolLegible(rol)
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
