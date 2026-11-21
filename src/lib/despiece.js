@@ -197,9 +197,15 @@ function datosMaterial(linea) {
   return {
     materialId: material.id || linea.material_id || linea.id,
     materialKey: String(
-      material.id || linea.material_id || linea.id || normalizarTexto(material.nombre || linea.material_nombre),
+      material.id ||
+        linea.material_id ||
+        linea.id ||
+        normalizarTexto(linea.material_nombre || material.nombre),
     ),
-    nombre: material.nombre || linea.material_nombre || 'Material sin nombre',
+    nombre:
+      String(linea.material_nombre || '').trim() ||
+      String(material.nombre || '').trim() ||
+      'Material sin nombre',
     codigo: material.codigo_referencia || linea.codigo_referencia || '',
     categoria,
     unidad:
@@ -240,9 +246,7 @@ function largoCorteDeFormula(config, anchoCm, altoCm, referenciaCm, descuentoMm)
 
   const restarCm = config.avanzada ? config.restarCm : 0;
   const divisor = config.avanzada ? config.dividir : 1;
-  const descuento = num(descuentoMm) / 10;
-
-  return limite((baseCm - restarCm - descuento) / Math.max(1, divisor));
+  return limite((baseCm - restarCm) / Math.max(1, divisor));
 }
 
 function compatibilidadColor(colorRetal, colorPieza) {
@@ -343,14 +347,28 @@ function optimizarRetales(piezas = [], retales = [], largoBarraDefecto = LARGO_B
         }),
     );
 
-    const ordenadas = [...grupo.piezas].sort((a, b) => b.largoCm - a.largoCm);
+    const ordenadas = [...grupo.piezas].sort((a, b) =>
+      b.largoCm - a.largoCm || String(a.itemDescripcion).localeCompare(String(b.itemDescripcion), 'es'),
+    );
     const pendientes = [];
 
     ordenadas.forEach((pieza) => {
       let mejor = null;
+      let mejorHueco = Infinity;
       compatibles.forEach((retal) => {
         if (retal._restante + 0.0001 < pieza.largoCm) return;
-        if (!mejor || retal._restante < mejor._restante) mejor = retal;
+        const huecoDespues = retal._restante - pieza.largoCm;
+        if (
+          !mejor ||
+          huecoDespues < mejorHueco - 0.0001 ||
+          (
+            Math.abs(huecoDespues - mejorHueco) <= 0.0001 &&
+            String(retal.ubicacion || '').localeCompare(String(mejor.ubicacion || ''), 'es') < 0
+          )
+        ) {
+          mejor = retal;
+          mejorHueco = huecoDespues;
+        }
       });
 
       if (!mejor) {
@@ -370,7 +388,16 @@ function optimizarRetales(piezas = [], retales = [], largoBarraDefecto = LARGO_B
 
     const barras = [];
     pendientes.forEach((pieza) => {
-      let barra = barras.find((fila) => fila._restante + 0.0001 >= pieza.largoCm);
+      let barra = null;
+      let menorSobrante = Infinity;
+      barras.forEach((fila) => {
+        if (fila._restante + 0.0001 < pieza.largoCm) return;
+        const sobrante = fila._restante - pieza.largoCm;
+        if (sobrante < menorSobrante - 0.0001) {
+          barra = fila;
+          menorSobrante = sobrante;
+        }
+      });
       if (!barra) {
         barra = {
           numero: barras.length + 1,
@@ -399,6 +426,17 @@ function optimizarRetales(piezas = [], retales = [], largoBarraDefecto = LARGO_B
         barras: barras.length,
         piezas: pendientes.length,
         piezasRetal: ordenadas.length - pendientes.length,
+        detalleBarras: barras.map((barra) => ({
+          numero: barra.numero,
+          largoCm: redondear(grupo.largoBarraCm),
+          sobranteCm: redondear(barra._restante),
+          piezas: barra.piezas.map((pieza) => ({
+            descripcion: pieza.itemDescripcion,
+            material: pieza.nombre,
+            largoCm: redondear(pieza.largoCm),
+            angulo: pieza.angulo,
+          })),
+        })),
         sobranteCm: redondear(
           barras.reduce((total, barra) => total + barra._restante, 0),
         ),
@@ -833,6 +871,14 @@ export function generarDespiece(items = [], sistemas = [], opciones = {}) {
           .map((pieza) => pieza.retalCodigo),
       ),
     ];
+    linea.planCorte = piezas.map((pieza) => ({
+      proyecto: pieza.itemDescripcion,
+      largoCm: redondear(pieza.largoCm),
+      fuente: pieza.fuente === 'retal' ? 'retal' : 'barra nueva',
+      retalCodigo: pieza.retalCodigo || '',
+      ubicacion: pieza.retalUbicacion || '',
+      barraNumero: pieza.barraNumero || null,
+    }));
   });
 
   const resumen = [...resumenMapa.values()].map((linea) => {

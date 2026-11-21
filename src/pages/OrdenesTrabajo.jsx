@@ -16,6 +16,7 @@ import {
   RefreshCw,
   Ruler,
   Search,
+  Send,
   Trash2,
   Truck,
   Wrench,
@@ -36,7 +37,7 @@ import {
 import { formatFecha, formatFechaHora, nuevoCodigoOrden, nuevoId } from '../lib/format';
 import { LARGO_BARRA_DEFECTO_CM, generarDespiece, normalizarDespiece } from '../lib/despiece';
 import { imprimirOrdenProduccion } from '../lib/ordenProduccion';
-import { notificarRoles } from '../lib/notificaciones';
+import { crearNotificacion, notificarRoles } from '../lib/notificaciones';
 import {
   MAX_IMAGENES,
   eliminarImagenesReferencia,
@@ -79,6 +80,7 @@ const FORM_VACIO = () => ({
   direccionCliente: '',
   barrioCliente: '',
   destino: 'medicion',
+  tipoEntrega: 'instalacion',
   items: [ITEM_VACIO()],
 });
 
@@ -87,6 +89,7 @@ const MEDIDAS_VACIO = {
   orden: null,
   texto: '',
   notas: '',
+  proyectos: [],
   existentes: [],
   existentesUrls: {},
   eliminar: [],
@@ -188,6 +191,14 @@ export default function OrdenesTrabajo({ perfil, ordenInicialId = null, onOrdenA
   const [recarga, setRecarga] = useState(0);
   const [busqueda, setBusqueda] = useState('');
   const [filtroEstado, setFiltroEstado] = useState('TODOS');
+  const [tiposMaterial, setTiposMaterial] = useState(TIPOS_VIDRIO);
+  const [nuevoTipoMaterial, setNuevoTipoMaterial] = useState('');
+  const [agregandoTipoMaterial, setAgregandoTipoMaterial] = useState(false);
+  const [instaladores, setInstaladores] = useState([]);
+  const [asignacionesInstalador, setAsignacionesInstalador] = useState({});
+  const [asignandoMedicion, setAsignandoMedicion] = useState(false);
+  const [clientes, setClientes] = useState([]);
+  const [busquedaCliente, setBusquedaCliente] = useState('');
 
   const [modalOrden, setModalOrden] = useState(false);
   const [ordenEditando, setOrdenEditando] = useState(null);
@@ -216,7 +227,7 @@ export default function OrdenesTrabajo({ perfil, ordenInicialId = null, onOrdenA
   const ordenInicialAbierta = useRef(null);
 
   const consultarDatos = useCallback(async () => {
-    const [resOrdenes, resSistemas, resMateriales, resRetales, resEmpresa] = await Promise.all([
+    const [resOrdenes, resSistemas, resMateriales, resRetales, resEmpresa, resInstaladores, resClientes] = await Promise.all([
       supabase.from('ordenes_trabajo').select('*').order('creado_en', { ascending: false }),
       supabase.from('sistemas_trabajo').select('*').order('nombre', { ascending: true }),
       supabase.from('sistema_materiales').select('*, material:material_id(*)'),
@@ -227,6 +238,15 @@ export default function OrdenesTrabajo({ perfil, ordenInicialId = null, onOrdenA
         .eq('disponible', true)
         .order('largo_cm', { ascending: false }),
       supabase.from('empresa_config').select('*').eq('id', 1).maybeSingle(),
+      supabase
+        .from('perfiles_usuario')
+        .select('id,nombre_completo,rol,activo')
+        .order('nombre_completo', { ascending: true }),
+      supabase
+        .from('clientes')
+        .select('id,nombre,telefono,direccion,barrio,notas,activo')
+        .eq('activo', true)
+        .order('nombre', { ascending: true }),
     ]);
 
     if (resOrdenes.error) throw resOrdenes.error;
@@ -251,6 +271,12 @@ export default function OrdenesTrabajo({ perfil, ordenInicialId = null, onOrdenA
       vidrios: resVidrios.error ? [] : resVidrios.data ?? [],
       retales: resRetales.error ? [] : resRetales.data ?? [],
       empresa: resEmpresa.error ? null : resEmpresa.data ?? null,
+      instaladores: (resInstaladores.error ? [] : resInstaladores.data ?? []).filter(
+        (persona) =>
+          persona.activo !== false &&
+          String(persona.rol || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().includes('instalador'),
+      ),
+      clientes: resClientes.error ? [] : resClientes.data ?? [],
     };
   }, []);
 
@@ -267,6 +293,8 @@ export default function OrdenesTrabajo({ perfil, ordenInicialId = null, onOrdenA
         setVidrios(datos.vidrios);
         setRetales(datos.retales);
         setEmpresa(datos.empresa);
+        setInstaladores(datos.instaladores);
+        setClientes(datos.clientes);
         setError('');
       } catch (err) {
         if (activo) setError('No se pudieron cargar las órdenes: ' + explicarError(err));
@@ -279,6 +307,26 @@ export default function OrdenesTrabajo({ perfil, ordenInicialId = null, onOrdenA
       activo = false;
     };
   }, [consultarDatos, recarga]);
+
+  useEffect(() => {
+    let activo = true;
+
+    (async () => {
+      const { data, error: errorTipos } = await supabase
+        .from('tipos_material_trabajo')
+        .select('nombre')
+        .eq('activo', true)
+        .order('nombre', { ascending: true });
+
+      if (!activo || errorTipos) return;
+      const nombres = (data ?? []).map((tipo) => tipo.nombre).filter(Boolean);
+      if (nombres.length) setTiposMaterial(nombres);
+    })();
+
+    return () => {
+      activo = false;
+    };
+  }, [recarga]);
 
   const refrescar = useCallback(() => setRecarga((valor) => valor + 1), []);
 
@@ -380,6 +428,31 @@ export default function OrdenesTrabajo({ perfil, ordenInicialId = null, onOrdenA
     if (errorForm) setErrorForm('');
   };
 
+  const agregarTipoMaterial = async () => {
+    const nombre = nuevoTipoMaterial.trim();
+    if (!nombre) return;
+    if (tiposMaterial.some((tipo) => tipo.toLocaleLowerCase() === nombre.toLocaleLowerCase())) {
+      setNuevoTipoMaterial('');
+      setAgregandoTipoMaterial(false);
+      mostrar('Tipo ya registrado', 'Este vidrio o acrílico ya está disponible.', 'advertencia');
+      return;
+    }
+
+    const { error: errorInsert } = await supabase
+      .from('tipos_material_trabajo')
+      .insert([{ nombre }]);
+
+    if (errorInsert) {
+      mostrar('No se pudo agregar', explicarError(errorInsert), 'advertencia');
+      return;
+    }
+
+    setTiposMaterial((prev) => [...prev, nombre].sort((a, b) => a.localeCompare(b, 'es')));
+    setNuevoTipoMaterial('');
+    setAgregandoTipoMaterial(false);
+    mostrar('Tipo agregado', `${nombre} ya está disponible en las órdenes.`, 'exito');
+  };
+
   const actualizarItem = (key, campo, valor) => {
     setForm((prev) => ({
       ...prev,
@@ -417,6 +490,7 @@ export default function OrdenesTrabajo({ perfil, ordenInicialId = null, onOrdenA
   const abrirNueva = () => {
     setOrdenEditando(null);
     setForm(FORM_VACIO());
+    setBusquedaCliente('');
     setErrorForm('');
     setModalOrden(true);
   };
@@ -444,6 +518,7 @@ export default function OrdenesTrabajo({ perfil, ordenInicialId = null, onOrdenA
       direccionCliente: orden.cliente_direccion || '',
       barrioCliente: orden.cliente_barrio || '',
       destino: orden.origen === 'produccion' ? 'produccion' : 'medicion',
+      tipoEntrega: orden.tipo_entrega || 'instalacion',
       items:
         filas.length > 0
           ? filas
@@ -569,27 +644,41 @@ export default function OrdenesTrabajo({ perfil, ordenInicialId = null, onOrdenA
 
     try {
       const nombre = form.nombreCliente.trim();
+      const telefono = form.telefonoCliente.trim();
       const direccion = form.direccionCliente.trim();
       if (!nombre) throw new Error('El nombre del cliente es obligatorio.');
+      if (!telefono) {
+        throw new Error('El teléfono del cliente es obligatorio para coordinar la visita.');
+      }
       if (!direccion) {
         throw new Error('La dirección es obligatoria: el instalador la necesita para llegar.');
       }
 
-      const filasForm = form.items.filter(
-        (item) => numero(item.ancho) > 0 && numero(item.alto) > 0,
-      );
-      if (!filasForm.length) {
+      const ordenId = ordenEditando?.id || nuevoId();
+      const vaAProduccion = !ordenEditando && form.destino === 'produccion';
+      const filasForm =
+        vaAProduccion || (ordenEditando && form.destino === 'produccion')
+          ? form.items.filter(
+              (item) => numero(item.ancho) > 0 && numero(item.alto) > 0,
+            )
+          : [];
+
+      if ((vaAProduccion || (ordenEditando && form.destino === 'produccion')) && !filasForm.length) {
         throw new Error('Agrega al menos un proyecto con ancho y alto mayores que cero.');
       }
 
-      const ordenId = ordenEditando?.id || nuevoId();
-      const filas = construirFilas(ordenId);
-      const despiece = generarDespiece(filas, sistemas, {
-        retales,
-        largoBarraCm: LARGO_BARRA_DEFECTO_CM,
-      });
+      const filas =
+        vaAProduccion || (ordenEditando && form.destino === 'produccion')
+          ? construirFilas(ordenId)
+          : [];
+      const despiece =
+        vaAProduccion || (ordenEditando && form.destino === 'produccion')
+          ? generarDespiece(filas, sistemas, {
+              retales,
+              largoBarraCm: LARGO_BARRA_DEFECTO_CM,
+            })
+          : null;
       const primerItem = filas[0];
-      const vaAProduccion = !ordenEditando && form.destino === 'produccion';
 
       const payload = {
         cliente_nombre: nombre,
@@ -597,14 +686,52 @@ export default function OrdenesTrabajo({ perfil, ordenInicialId = null, onOrdenA
         cliente_direccion: direccion,
         cliente_barrio: form.barrioCliente.trim(),
         tipo_trabajo: primerItem?.tipo_trabajo || TIPOS_TRABAJO[0],
+        tipo_entrega: vaAProduccion ? form.tipoEntrega : null,
       };
+
+      if (!ordenEditando && (permisos.puedeAdministrar || permisos.esJefe)) {
+        const existente = clientes.find((cliente) => {
+          const mismoTelefono =
+            form.telefonoCliente.trim() &&
+            cliente.telefono &&
+            cliente.telefono.trim() === form.telefonoCliente.trim();
+          const mismaDireccion =
+            direccion &&
+            cliente.direccion &&
+            cliente.direccion.trim().toLocaleLowerCase() === direccion.toLocaleLowerCase();
+          return mismoTelefono || mismaDireccion;
+        });
+        const datosCliente = {
+          nombre,
+          telefono: form.telefonoCliente.trim() || null,
+          direccion,
+          barrio: form.barrioCliente.trim() || null,
+          activo: true,
+          actualizado_en: new Date().toISOString(),
+        };
+        if (existente) {
+          await supabase.from('clientes').update(datosCliente).eq('id', existente.id);
+        } else {
+          await supabase.from('clientes').insert([datosCliente]);
+        }
+      }
 
       if (ordenEditando) {
         const { error: errorUpdate } = await supabase
           .from('ordenes_trabajo')
           .update(payload)
           .eq('id', ordenId);
-        if (errorUpdate) throw errorUpdate;
+        if (errorUpdate && /tipo_entrega/i.test(errorUpdate.message)) {
+          const payloadSinTipoEntrega = { ...payload };
+          delete payloadSinTipoEntrega.tipo_entrega;
+          const respaldo = await supabase
+            .from('ordenes_trabajo')
+            .update(payloadSinTipoEntrega)
+            .eq('id', ordenId);
+          if (respaldo.error) throw respaldo.error;
+        } else if (errorUpdate) {
+          throw errorUpdate;
+        }
       } else {
         const basico = {
           id: ordenId,
@@ -617,6 +744,14 @@ export default function OrdenesTrabajo({ perfil, ordenInicialId = null, onOrdenA
           .from('ordenes_trabajo')
           .insert([{ ...basico, origen: vaAProduccion ? 'produccion' : 'medicion' }]);
 
+        if (errorInsert && /tipo_entrega/i.test(errorInsert.message)) {
+          const basicoSinTipoEntrega = { ...basico };
+          delete basicoSinTipoEntrega.tipo_entrega;
+          const reintentoTipo = await supabase
+            .from('ordenes_trabajo')
+            .insert([{ ...basicoSinTipoEntrega, origen: vaAProduccion ? 'produccion' : 'medicion' }]);
+          errorInsert = reintentoTipo.error;
+        }
         if (errorInsert && /origen/i.test(errorInsert.message)) {
           const reintento = await supabase.from('ordenes_trabajo').insert([basico]);
           errorInsert = reintento.error;
@@ -700,6 +835,43 @@ export default function OrdenesTrabajo({ perfil, ordenInicialId = null, onOrdenA
     }
   };
 
+  const asignarMedicion = async (ordenId) => {
+    const instaladorId = asignacionesInstalador[ordenId] || '';
+    const instalador = instaladores.find((persona) => persona.id === instaladorId);
+    if (!instalador) {
+      mostrar('Selecciona un instalador', 'Elige a quién asignar esta orden para tomar medidas.');
+      return;
+    }
+
+    const orden = ordenes.find((item) => item.id === ordenId);
+    if (!orden) return;
+
+    setAsignandoMedicion(true);
+    try {
+      const ok = await actualizarOrden(
+        orden.id,
+        {
+          instalador_id: instalador.id,
+          instalador_nombre: instalador.nombre_completo,
+          estado: ESTADOS.ASIGNADO_INSTALADOR,
+        },
+        `Orden asignada a ${instalador.nombre_completo} para tomar medidas.`,
+      );
+      if (!ok) return;
+
+      await crearNotificacion({
+        usuarioId: instalador.id,
+        ordenId: orden.id,
+        tipo: 'orden',
+        titulo: `Nueva visita para tomar medidas · ${orden.cliente_nombre}`,
+        mensaje: `${orden.cliente_direccion || 'Sin dirección'}${orden.cliente_barrio ? ` · ${orden.cliente_barrio}` : ''}. Asignada por ${perfil?.nombre_completo || 'Administración'}.`,
+      });
+      setAsignacionesInstalador((prev) => ({ ...prev, [ordenId]: '' }));
+    } finally {
+      setAsignandoMedicion(false);
+    }
+  };
+
   const enviarAProduccion = async (orden) => {
     const despiece = calcularDespiece(orden.id);
     const ok = await actualizarOrden(
@@ -751,6 +923,27 @@ export default function OrdenesTrabajo({ perfil, ordenInicialId = null, onOrdenA
 
   const abrirModalMedidas = (orden) => {
     const existentes = orden.imagenes_referencia || [];
+    const filasOrden = itemsPorOrden.get(orden.id) || [];
+    const proyectos =
+      filasOrden.length > 0
+        ? filasOrden.map((fila) => ({
+            key: fila.id || nuevoId(),
+            id: fila.id || null,
+            descripcion: fila.descripcion || '',
+            sistemaId: fila.sistema_id || '',
+            ancho: fila.ancho_cm ? String(fila.ancho_cm) : '',
+            alto: fila.alto_cm ? String(fila.alto_cm) : '',
+            cantidad: String(fila.cantidad || 1),
+          }))
+        : [{
+            key: nuevoId(),
+            id: null,
+            descripcion: '',
+            sistemaId: '',
+            ancho: '',
+            alto: '',
+            cantidad: '1',
+          }];
     setErrorMedidas('');
     setModalMedidas({
       ...MEDIDAS_VACIO,
@@ -759,6 +952,7 @@ export default function OrdenesTrabajo({ perfil, ordenInicialId = null, onOrdenA
       texto: orden.medidas_terreno || '',
       notas: orden.notas_medidas || '',
       existentes,
+      proyectos,
     });
 
     if (existentes.length) {
@@ -833,14 +1027,58 @@ export default function OrdenesTrabajo({ perfil, ordenInicialId = null, onOrdenA
     }));
   };
 
+  const actualizarProyectoMedida = (key, campo, valor) => {
+    setModalMedidas((prev) => ({
+      ...prev,
+      proyectos: prev.proyectos.map((proyecto) =>
+        proyecto.key === key ? { ...proyecto, [campo]: valor } : proyecto,
+      ),
+    }));
+  };
+
+  const agregarProyectoMedida = () => {
+    setModalMedidas((prev) => ({
+      ...prev,
+      proyectos: [
+        ...prev.proyectos,
+        {
+          key: nuevoId(),
+          id: null,
+          descripcion: '',
+          sistemaId: '',
+          ancho: '',
+          alto: '',
+          cantidad: '1',
+        },
+      ],
+    }));
+  };
+
+  const quitarProyectoMedida = (key) => {
+    setModalMedidas((prev) => ({
+      ...prev,
+      proyectos:
+        prev.proyectos.length > 1
+          ? prev.proyectos.filter((proyecto) => proyecto.key !== key)
+          : prev.proyectos,
+    }));
+  };
+
   const guardarMedidas = async (evento) => {
     evento.preventDefault();
     const { orden } = modalMedidas;
     if (!orden) return;
 
     const medidas = modalMedidas.texto.trim();
+    const proyectosValidos = modalMedidas.proyectos.filter(
+      (proyecto) => numero(proyecto.ancho) > 0 && numero(proyecto.alto) > 0,
+    );
+    if (!proyectosValidos.length) {
+      setErrorMedidas('Agrega al menos un proyecto con ancho y alto mayores que cero.');
+      return;
+    }
     if (!medidas) {
-      setErrorMedidas('Escribe al menos una medida antes de enviar.');
+      setErrorMedidas('Describe las cotas y observaciones tomadas en terreno.');
       return;
     }
 
@@ -858,7 +1096,66 @@ export default function OrdenesTrabajo({ perfil, ordenInicialId = null, onOrdenA
         (ruta) => !modalMedidas.eliminar.includes(ruta),
       );
       const imagenes = [...conservadas, ...subidas];
-      const despiece = calcularDespiece(orden.id);
+      const filasMedidas = proyectosValidos.map((proyecto, indice) => ({
+        id: proyecto.id || nuevoId(),
+        orden_id: orden.id,
+        sistema_id: proyecto.sistemaId || null,
+        sistema_nombre:
+          sistemas.find((sistema) => sistema.id === proyecto.sistemaId)?.nombre || null,
+        descripcion: proyecto.descripcion.trim() || `Proyecto ${indice + 1}`,
+        tipo_trabajo:
+          sistemas.find((sistema) => sistema.id === proyecto.sistemaId)?.nombre ||
+          TIPOS_TRABAJO[0],
+        ancho_cm: numero(proyecto.ancho),
+        alto_cm: numero(proyecto.alto),
+        cantidad: Math.max(1, Math.round(numero(proyecto.cantidad, 1))),
+        vidrio_tipo: TIPOS_VIDRIO[0],
+        vidrio_espesor: ESPESORES_VIDRIO[2],
+        color: COLORES_PERFIL[0],
+        observaciones: '',
+        orden: indice,
+      }));
+
+      const { data: actualesItems, error: errorActualesItems } = await supabase
+        .from('orden_items')
+        .select('id')
+        .eq('orden_id', orden.id);
+      if (errorActualesItems) throw errorActualesItems;
+
+      const idsConservados = new Set(filasMedidas.map((fila) => fila.id));
+      const idsEliminar = (actualesItems ?? [])
+        .map((fila) => fila.id)
+        .filter((id) => !idsConservados.has(id));
+      if (idsEliminar.length) {
+        const { error: errorEliminarItems } = await supabase
+          .from('orden_items')
+          .delete()
+          .in('id', idsEliminar);
+        if (errorEliminarItems) throw errorEliminarItems;
+      }
+
+      const { error: errorGuardarItems } = await supabase
+        .from('orden_items')
+        .upsert(filasMedidas);
+      if (errorGuardarItems) throw errorGuardarItems;
+
+      const despiece = generarDespiece(
+        filasMedidas.map((fila) => ({
+          id: fila.id,
+          sistema_id: fila.sistema_id,
+          descripcion: fila.descripcion,
+          tipo_trabajo: fila.tipo_trabajo,
+          ancho_cm: fila.ancho_cm,
+          alto_cm: fila.alto_cm,
+          cantidad: fila.cantidad,
+          vidrio_tipo: fila.vidrio_tipo,
+          vidrio_espesor: fila.vidrio_espesor,
+          color: fila.color,
+          observaciones: fila.observaciones,
+        })),
+        sistemas,
+        { retales, largoBarraCm: LARGO_BARRA_DEFECTO_CM },
+      );
 
       const cambios = {
         medidas_terreno: medidas,
@@ -1263,6 +1560,7 @@ export default function OrdenesTrabajo({ perfil, ordenInicialId = null, onOrdenA
 
   const descargarOrdenProduccion = useCallback(
     (orden) => {
+      if (!permisos.puedeDescargarOrdenProduccion) return;
       const filas = itemsPorOrden.get(orden.id) || [];
       const abierta = imprimirOrdenProduccion({
         empresa,
@@ -1279,14 +1577,35 @@ export default function OrdenesTrabajo({ perfil, ordenInicialId = null, onOrdenA
         );
       }
     },
-    [despieceDeOrden, empresa, itemsPorOrden, mostrar, perfil?.nombre_completo],
+    [
+      despieceDeOrden,
+      empresa,
+      itemsPorOrden,
+      mostrar,
+      perfil?.nombre_completo,
+      permisos.puedeDescargarOrdenProduccion,
+    ],
   );
 
   const tieneDetalleProduccion = useCallback(
     (orden) => {
       const filas = itemsPorOrden.get(orden.id) || [];
       const guardado = normalizarDespiece(orden.despiece);
-      return filas.length > 0 || (guardado?.items?.length || 0) > 0;
+      const estaEnProduccion =
+        orden.origen === 'produccion' ||
+        Boolean(orden.medidas_terreno) ||
+        Boolean(orden.medido_en) ||
+        [
+          ESTADOS.PENDIENTE_PRODUCCION,
+          ESTADOS.EN_PRODUCCION,
+          ESTADOS.FINALIZADO,
+          ESTADOS.ENTREGADO,
+        ].includes(orden.estado);
+      return estaEnProduccion && (
+        filas.length > 0 ||
+        (guardado?.items?.length || 0) > 0 ||
+        Boolean(orden.medidas_terreno)
+      );
     },
     [itemsPorOrden],
   );
@@ -1296,7 +1615,10 @@ export default function OrdenesTrabajo({ perfil, ordenInicialId = null, onOrdenA
     const esAdminOJefe = permisos.esAdmin || permisos.esJefe;
     const esMia = !orden.instalador_id || orden.instalador_id === perfil?.id;
 
-    if (permisos.puedeVerProduccion && tieneDetalleProduccion(orden)) {
+    if (
+      permisos.puedeDescargarOrdenProduccion &&
+      tieneDetalleProduccion(orden)
+    ) {
       botones.push(
         <button
           key="orden-produccion"
@@ -1310,7 +1632,7 @@ export default function OrdenesTrabajo({ perfil, ordenInicialId = null, onOrdenA
       );
     }
 
-    if (orden.estado === ESTADOS.PENDIENTE_ASIGNACION) {
+    if (!permisos.esSuperAdmin && orden.estado === ESTADOS.PENDIENTE_ASIGNACION) {
       if (permisos.puedeInstalar && !orden.instalador_id) {
         botones.push(
           <button
@@ -1323,7 +1645,7 @@ export default function OrdenesTrabajo({ perfil, ordenInicialId = null, onOrdenA
           </button>,
         );
       }
-      if (esAdminOJefe) {
+      if (permisos.puedeAsignarMediciones && !permisos.esSuperAdmin) {
         botones.push(
           <button
             key="produccion-directa"
@@ -1338,8 +1660,9 @@ export default function OrdenesTrabajo({ perfil, ordenInicialId = null, onOrdenA
     }
 
     if (
+      !permisos.esSuperAdmin &&
       orden.estado === ESTADOS.ASIGNADO_INSTALADOR &&
-      permisos.puedeMedir &&
+      permisos.puedeGestionarMediciones &&
       (esMia || esAdminOJefe)
     ) {
       botones.push(
@@ -1354,7 +1677,11 @@ export default function OrdenesTrabajo({ perfil, ordenInicialId = null, onOrdenA
       );
     }
 
-    if (esAdminOJefe && orden.estado === ESTADOS.COTIZACION_PENDIENTE) {
+    if (
+      !permisos.esSuperAdmin &&
+      permisos.puedeAsignarMediciones &&
+      orden.estado === ESTADOS.COTIZACION_PENDIENTE
+    ) {
       botones.push(
         <button
           key="aprobar"
@@ -1367,7 +1694,11 @@ export default function OrdenesTrabajo({ perfil, ordenInicialId = null, onOrdenA
       );
     }
 
-    if (permisos.puedeAceptarProduccion && orden.estado === ESTADOS.PENDIENTE_PRODUCCION) {
+    if (
+      !permisos.esSuperAdmin &&
+      permisos.puedeGestionarProduccion &&
+      orden.estado === ESTADOS.PENDIENTE_PRODUCCION
+    ) {
       botones.push(
         <button
           key="aceptar"
@@ -1380,7 +1711,11 @@ export default function OrdenesTrabajo({ perfil, ordenInicialId = null, onOrdenA
       );
     }
 
-    if (permisos.puedeEnviarVidrios && orden.estado === ESTADOS.EN_PRODUCCION) {
+    if (
+      !permisos.esSuperAdmin &&
+      permisos.puedeGestionarProduccion &&
+      orden.estado === ESTADOS.EN_PRODUCCION
+    ) {
       botones.push(
         <button
           key="vidrios"
@@ -1393,7 +1728,11 @@ export default function OrdenesTrabajo({ perfil, ordenInicialId = null, onOrdenA
       );
     }
 
-    if (permisos.puedeTerminarProduccion && orden.estado === ESTADOS.EN_PRODUCCION) {
+    if (
+      !permisos.esSuperAdmin &&
+      permisos.puedeGestionarProduccion &&
+      orden.estado === ESTADOS.EN_PRODUCCION
+    ) {
       botones.push(
         <button
           key="terminar"
@@ -1406,7 +1745,12 @@ export default function OrdenesTrabajo({ perfil, ordenInicialId = null, onOrdenA
       );
     }
 
-    if (esAdminOJefe && orden.estado === ESTADOS.FINALIZADO && !orden.entregado_en) {
+    if (
+      !permisos.esSuperAdmin &&
+      esAdminOJefe &&
+      orden.estado === ESTADOS.FINALIZADO &&
+      !orden.entregado_en
+    ) {
       botones.push(
         <button
           key="entregar"
@@ -1489,6 +1833,84 @@ export default function OrdenesTrabajo({ perfil, ordenInicialId = null, onOrdenA
           </div>
         ))}
       </div>
+
+      {permisos.puedeAsignarMediciones && !permisos.esSuperAdmin && (
+        <section className="rounded-3xl border border-blue-500/25 bg-gradient-to-br from-blue-950/30 to-slate-900 p-5 shadow-lg">
+          <div className="flex flex-col gap-2 border-b border-slate-800 pb-4 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <h2 className="flex items-center gap-2 text-sm font-bold text-blue-300">
+                <Send size={17} /> Enviar órdenes para tomar medidas
+              </h2>
+              <p className="mt-1 text-[11px] text-slate-400">
+                Asigna directamente una orden pendiente a un instalador. Recibirá una notificación.
+              </p>
+            </div>
+            <span className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-1.5 text-[10px] font-mono text-slate-300">
+              {instaladores.length} instalador{instaladores.length === 1 ? '' : 'es'} disponible{instaladores.length === 1 ? '' : 's'}
+            </span>
+          </div>
+
+          {instaladores.length === 0 ? (
+            <p className="mt-4 rounded-xl border border-dashed border-slate-700 p-4 text-center text-[11px] text-slate-500">
+              No hay instaladores activos registrados.
+            </p>
+          ) : (
+            <div className="mt-4 space-y-2">
+              {ordenes
+                .filter((orden) => orden.estado === ESTADOS.PENDIENTE_ASIGNACION)
+                .slice(0, 8)
+                .map((orden) => (
+                  <div
+                    key={orden.id}
+                    className="grid gap-3 rounded-2xl border border-slate-800 bg-slate-950 p-3 sm:grid-cols-[minmax(0,1fr)_220px_auto]"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-xs font-bold text-white">
+                        {orden.codigo_orden || 'Sin código'} · {orden.cliente_nombre}
+                      </p>
+                      <p className="mt-1 truncate text-[10px] text-slate-400">
+                        {orden.cliente_direccion || 'Sin dirección'}
+                        {orden.cliente_barrio ? ` · ${orden.cliente_barrio}` : ''}
+                      </p>
+                    </div>
+                    <select
+                      value={asignacionesInstalador[orden.id] || ''}
+                      onChange={(evento) =>
+                        setAsignacionesInstalador((prev) => ({
+                          ...prev,
+                          [orden.id]: evento.target.value,
+                        }))
+                      }
+                      aria-label={`Instalador para ${orden.cliente_nombre}`}
+                      className="w-full rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-[11px] text-white focus:border-blue-500 focus:outline-none"
+                    >
+                      <option value="">Selecciona instalador...</option>
+                      {instaladores.map((instalador) => (
+                        <option key={instalador.id} value={instalador.id}>
+                          {instalador.nombre_completo}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => asignarMedicion(orden.id)}
+                      disabled={asignandoMedicion}
+                      className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-blue-600 px-3 py-2 text-[11px] font-bold text-white hover:bg-blue-500 disabled:opacity-50"
+                    >
+                      <Send size={13} /> Enviar
+                    </button>
+                  </div>
+                ))}
+
+              {resumen.pendientes === 0 && (
+                <p className="rounded-xl border border-dashed border-slate-700 p-4 text-center text-[11px] text-slate-500">
+                  No hay órdenes pendientes de asignación.
+                </p>
+              )}
+            </div>
+          )}
+        </section>
+      )}
 
       {/* Filtros */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-slate-900 p-4 rounded-2xl border border-slate-800 shadow-lg">
@@ -1642,6 +2064,17 @@ export default function OrdenesTrabajo({ perfil, ordenInicialId = null, onOrdenA
                             <Factory size={10} /> Directo a producción
                           </p>
                         )}
+                        {orden.tipo_entrega && (
+                          <p className={`mt-1.5 inline-flex items-center gap-1 text-[9px] ${
+                            orden.tipo_entrega === 'entrega_cliente'
+                              ? 'text-emerald-300'
+                              : 'text-amber-300'
+                          }`}>
+                            {orden.tipo_entrega === 'entrega_cliente'
+                              ? 'Entrega directa al dueño'
+                              : 'Instalación por el taller'}
+                          </p>
+                        )}
                       </td>
                       <td className="p-4 text-slate-400 text-[10px] font-sans max-w-[12rem]">
                         {orden.instalador_nombre && (
@@ -1743,6 +2176,57 @@ export default function OrdenesTrabajo({ perfil, ordenInicialId = null, onOrdenA
             </div>
           )}
 
+          {!ordenEditando && (
+            <div className="space-y-2 rounded-2xl border border-slate-800 bg-slate-950 p-3">
+              <p className="text-xs font-bold text-slate-300">Buscar cliente guardado</p>
+              <input
+                type="search"
+                value={busquedaCliente}
+                onChange={(evento) => setBusquedaCliente(evento.target.value)}
+                placeholder="Buscar por nombre, teléfono o dirección..."
+                className="w-full rounded-xl border border-slate-800 bg-slate-900 px-3 py-2.5 text-xs text-white focus:border-blue-500 focus:outline-none"
+              />
+              {busquedaCliente.trim() && (
+                <div className="max-h-36 space-y-1 overflow-y-auto">
+                  {clientes
+                    .filter((cliente) =>
+                      [cliente.nombre, cliente.telefono, cliente.direccion, cliente.barrio]
+                        .filter(Boolean)
+                        .some((valor) =>
+                          String(valor).toLocaleLowerCase().includes(busquedaCliente.toLocaleLowerCase().trim()),
+                        ),
+                    )
+                    .slice(0, 8)
+                    .map((cliente) => (
+                      <button
+                        key={cliente.id}
+                        type="button"
+                        onClick={() => {
+                          setForm((prev) => ({
+                            ...prev,
+                            nombreCliente: cliente.nombre || '',
+                            telefonoCliente: cliente.telefono || '',
+                            direccionCliente: cliente.direccion || '',
+                            barrioCliente: cliente.barrio || '',
+                          }));
+                          setBusquedaCliente(cliente.nombre || '');
+                        }}
+                        className="flex w-full items-center justify-between gap-3 rounded-xl border border-slate-800 px-3 py-2 text-left hover:border-blue-500/40 hover:bg-blue-500/5"
+                      >
+                        <span className="min-w-0">
+                          <strong className="block truncate text-xs text-white">{cliente.nombre}</strong>
+                          <span className="block truncate text-[10px] text-slate-400">
+                            {cliente.telefono || 'Sin teléfono'} · {cliente.direccion || 'Sin dirección'}
+                          </span>
+                        </span>
+                        <span className="text-[10px] font-bold text-blue-400">Usar</span>
+                      </button>
+                    ))}
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label htmlFor="orden-cliente" className="block text-xs font-semibold text-slate-300 mb-1">
@@ -1761,7 +2245,7 @@ export default function OrdenesTrabajo({ perfil, ordenInicialId = null, onOrdenA
 
             <div>
               <label htmlFor="orden-telefono" className="block text-xs font-semibold text-slate-300 mb-1">
-                Teléfono del Cliente
+                Teléfono del Cliente <span className="text-red-400">*</span>
               </label>
               <input
                 id="orden-telefono"
@@ -1770,6 +2254,7 @@ export default function OrdenesTrabajo({ perfil, ordenInicialId = null, onOrdenA
                 onChange={(evento) => actualizarCampo('telefonoCliente', evento.target.value)}
                 placeholder="Ej. 3110000000"
                 className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-blue-500"
+                required
               />
             </div>
 
@@ -1808,7 +2293,9 @@ export default function OrdenesTrabajo({ perfil, ordenInicialId = null, onOrdenA
 
           {!ordenEditando && (
             <div className="space-y-2">
-              <p className="text-xs font-semibold text-slate-300">¿Qué debe pasar con esta orden?</p>
+              <p className="text-xs font-semibold text-slate-300">
+                ¿Qué se debe hacer con esta orden?
+              </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <button
                   type="button"
@@ -1820,10 +2307,10 @@ export default function OrdenesTrabajo({ perfil, ordenInicialId = null, onOrdenA
                   }`}
                 >
                   <span className="flex items-center gap-2 text-xs font-bold text-white">
-                    <Ruler size={15} className="text-amber-400" /> Enviar a medir
+                    <Ruler size={15} className="text-amber-400" /> Enviar a tomar medidas
                   </span>
                   <span className="block text-[10px] text-slate-400 mt-1">
-                    El instalador toma medidas en terreno y luego el jefe cotiza.
+                    El instalador visita al cliente, toma las medidas y las registra en la orden.
                   </span>
                 </button>
                 <button
@@ -1836,16 +2323,59 @@ export default function OrdenesTrabajo({ perfil, ordenInicialId = null, onOrdenA
                   }`}
                 >
                   <span className="flex items-center gap-2 text-xs font-bold text-white">
-                    <Factory size={15} className="text-orange-400" /> Pasar directo a producción
+                    <Factory size={15} className="text-orange-400" /> Cliente ya tiene las medidas
                   </span>
                   <span className="block text-[10px] text-slate-400 mt-1">
-                    Ya tienes las medidas: se calcula el despiece y el taller recibe el trabajo.
+                    Envía directamente la orden a producción. Las medidas deben estar completas en los proyectos.
                   </span>
                 </button>
               </div>
+
+              {form.destino === 'produccion' && (
+                <div className="space-y-2 rounded-2xl border border-orange-500/25 bg-orange-950/20 p-3">
+                  <p className="text-xs font-bold text-orange-300">
+                    ¿Qué se hará al terminar el proyecto?
+                  </p>
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <button
+                      type="button"
+                      onClick={() => actualizarCampo('tipoEntrega', 'instalacion')}
+                      className={`rounded-xl border p-3 text-left transition-all ${
+                        form.tipoEntrega === 'instalacion'
+                          ? 'border-amber-500/60 bg-amber-500/10'
+                          : 'border-slate-800 bg-slate-950 hover:border-slate-700'
+                      }`}
+                    >
+                      <span className="block text-xs font-bold text-white">
+                        Nosotros instalamos
+                      </span>
+                      <span className="mt-1 block text-[10px] text-slate-400">
+                        El proyecto queda asignado para instalación posterior.
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => actualizarCampo('tipoEntrega', 'entrega_cliente')}
+                      className={`rounded-xl border p-3 text-left transition-all ${
+                        form.tipoEntrega === 'entrega_cliente'
+                          ? 'border-emerald-500/60 bg-emerald-500/10'
+                          : 'border-slate-800 bg-slate-950 hover:border-slate-700'
+                      }`}
+                    >
+                      <span className="block text-xs font-bold text-white">
+                        Entregar directo al dueño
+                      </span>
+                      <span className="mt-1 block text-[10px] text-slate-400">
+                        El cliente recoge o recibe el proyecto terminado sin instalación del taller.
+                      </span>
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
+          {form.destino === 'produccion' && (
           <div className="space-y-3">
             <div className="flex items-center justify-between gap-2">
               <div>
@@ -2003,51 +2533,62 @@ export default function OrdenesTrabajo({ perfil, ordenInicialId = null, onOrdenA
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  <div>
+                <div>
+                  <div className="flex items-center justify-between gap-2 mb-1">
                     <label
                       htmlFor={`item-vidrio-${item.key}`}
-                      className="block text-[10px] text-slate-400 mb-1"
+                      className="block text-[10px] text-slate-400"
                     >
-                      Tipo de vidrio
+                      Tipo de vidrio o acrílico
                     </label>
-                    <select
-                      id={`item-vidrio-${item.key}`}
-                      value={item.vidrioTipo}
-                      onChange={(evento) =>
-                        actualizarItem(item.key, 'vidrioTipo', evento.target.value)
-                      }
-                      className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500"
-                    >
-                      {TIPOS_VIDRIO.map((tipo) => (
-                        <option key={tipo} value={tipo}>
-                          {tipo}
-                        </option>
-                      ))}
-                    </select>
+                    {permisos.puedeAdministrar && (
+                      <button
+                        type="button"
+                        onClick={() => setAgregandoTipoMaterial((valor) => !valor)}
+                        className="text-[10px] font-bold text-blue-400 hover:text-blue-300"
+                      >
+                        {agregandoTipoMaterial ? 'Cancelar' : '+ Agregar tipo'}
+                      </button>
+                    )}
                   </div>
-                  <div>
-                    <label
-                      htmlFor={`item-espesor-${item.key}`}
-                      className="block text-[10px] text-slate-400 mb-1"
-                    >
-                      Espesor del vidrio
-                    </label>
-                    <select
-                      id={`item-espesor-${item.key}`}
-                      value={item.vidrioEspesor}
-                      onChange={(evento) =>
-                        actualizarItem(item.key, 'vidrioEspesor', evento.target.value)
-                      }
-                      className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500"
-                    >
-                      {ESPESORES_VIDRIO.map((espesor) => (
-                        <option key={espesor} value={espesor}>
-                          {espesor}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                  <select
+                    id={`item-vidrio-${item.key}`}
+                    value={item.vidrioTipo}
+                    onChange={(evento) =>
+                      actualizarItem(item.key, 'vidrioTipo', evento.target.value)
+                    }
+                    className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500"
+                  >
+                    {[...new Set([...tiposMaterial, item.vidrioTipo].filter(Boolean))].map((tipo) => (
+                      <option key={tipo} value={tipo}>
+                        {tipo}
+                      </option>
+                    ))}
+                  </select>
+                  {agregandoTipoMaterial && permisos.puedeAdministrar && (
+                    <div className="mt-2 flex gap-2">
+                      <input
+                        type="text"
+                        value={nuevoTipoMaterial}
+                        onChange={(evento) => setNuevoTipoMaterial(evento.target.value)}
+                        onKeyDown={(evento) => {
+                          if (evento.key === 'Enter') {
+                            evento.preventDefault();
+                            agregarTipoMaterial();
+                          }
+                        }}
+                        placeholder="Ej. Acrílico verde, vidrio mate..."
+                        className="min-w-0 flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500"
+                      />
+                      <button
+                        type="button"
+                        onClick={agregarTipoMaterial}
+                        className="px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-[10px] font-bold"
+                      >
+                        Guardar
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 <div>
@@ -2071,6 +2612,17 @@ export default function OrdenesTrabajo({ perfil, ordenInicialId = null, onOrdenA
               </div>
             ))}
           </div>
+          )}
+
+          {!ordenEditando && form.destino === 'medicion' && (
+            <div className="rounded-2xl border border-amber-500/25 bg-amber-950/20 p-4">
+              <p className="text-xs font-bold text-amber-300">Datos necesarios para la visita</p>
+              <p className="mt-1 text-[10px] leading-relaxed text-slate-400">
+                El instalador recibirá el nombre, teléfono y dirección del cliente. Las medidas,
+                el sistema y los proyectos se registrarán después de realizar la visita.
+              </p>
+            </div>
+          )}
 
           <div className="flex justify-end gap-3 pt-4 border-t border-slate-800">
             <button
@@ -2133,8 +2685,22 @@ export default function OrdenesTrabajo({ perfil, ordenInicialId = null, onOrdenA
                   <strong className="text-cyan-300">{ordenDetalle.produccion_nombre}</strong>
                 </span>
               )}
-              {permisos.puedeVerProduccion &&
-                (itemsDetalle.length > 0 || (despieceDetalle?.items || []).length > 0) && (
+              {ordenDetalle.tipo_entrega && (
+                <span className="text-[10px] text-slate-400">
+                  Entrega:{' '}
+                  <strong className={
+                    ordenDetalle.tipo_entrega === 'entrega_cliente'
+                      ? 'text-emerald-300'
+                      : 'text-amber-300'
+                  }>
+                    {ordenDetalle.tipo_entrega === 'entrega_cliente'
+                      ? 'Directa al dueño'
+                      : 'Instalación por el taller'}
+                  </strong>
+                </span>
+              )}
+              {permisos.puedeDescargarOrdenProduccion &&
+                tieneDetalleProduccion(ordenDetalle) && (
                 <button
                   type="button"
                   onClick={() => descargarOrdenProduccion(ordenDetalle)}
@@ -2381,6 +2947,11 @@ export default function OrdenesTrabajo({ perfil, ordenInicialId = null, onOrdenA
                 </p>
                 {modalMedidas.orden?.cliente_direccion ? (
                   <>
+                    {modalMedidas.orden.cliente_nombre && (
+                      <p className="mt-1 text-xs font-bold text-white">
+                        {modalMedidas.orden.cliente_nombre}
+                      </p>
+                    )}
                     <p className="text-sm font-semibold text-white mt-1 break-words">
                       {modalMedidas.orden.cliente_direccion}
                     </p>
@@ -2429,9 +3000,113 @@ export default function OrdenesTrabajo({ perfil, ordenInicialId = null, onOrdenA
             </div>
           )}
 
+          <div className="space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <p className="text-xs font-bold text-white">Proyectos medidos</p>
+                <p className="text-[10px] text-slate-500">
+                  Registra una fila por ventana, puerta o espacio medido.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={agregarProyectoMedida}
+                className="inline-flex items-center gap-1.5 rounded-xl bg-slate-800 px-3 py-2 text-[11px] font-bold text-slate-200 hover:bg-slate-700"
+              >
+                <Plus size={14} /> Agregar proyecto
+              </button>
+            </div>
+
+            {modalMedidas.proyectos.map((proyecto, indice) => (
+              <div key={proyecto.key} className="space-y-3 rounded-2xl border border-slate-800 bg-slate-950 p-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-[11px] font-bold text-cyan-400">Proyecto {indice + 1}</p>
+                  {modalMedidas.proyectos.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => quitarProyectoMedida(proyecto.key)}
+                      className="p-1 text-red-400 hover:text-red-300"
+                      aria-label={`Quitar proyecto ${indice + 1}`}
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  )}
+                </div>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <label className="text-[10px] text-slate-400">
+                    Descripción
+                    <input
+                      type="text"
+                      value={proyecto.descripcion}
+                      onChange={(evento) =>
+                        actualizarProyectoMedida(proyecto.key, 'descripcion', evento.target.value)
+                      }
+                      placeholder="Ej. Ventana sala"
+                      className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 text-xs text-white focus:border-blue-500 focus:outline-none"
+                    />
+                  </label>
+                  <label className="text-[10px] text-slate-400">
+                    Sistema de trabajo
+                    <select
+                      value={proyecto.sistemaId}
+                      onChange={(evento) =>
+                        actualizarProyectoMedida(proyecto.key, 'sistemaId', evento.target.value)
+                      }
+                      className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 text-xs text-white focus:border-blue-500 focus:outline-none"
+                    >
+                      <option value="">Selecciona el sistema...</option>
+                      {sistemas.map((sistema) => (
+                        <option key={sistema.id} value={sistema.id}>{sistema.nombre}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="text-[10px] text-slate-400">
+                    Ancho (cm) *
+                    <input
+                      type="number"
+                      min="0.1"
+                      step="0.1"
+                      value={proyecto.ancho}
+                      onChange={(evento) =>
+                        actualizarProyectoMedida(proyecto.key, 'ancho', evento.target.value)
+                      }
+                      className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 text-xs text-white font-mono focus:border-blue-500 focus:outline-none"
+                    />
+                  </label>
+                  <label className="text-[10px] text-slate-400">
+                    Alto (cm) *
+                    <input
+                      type="number"
+                      min="0.1"
+                      step="0.1"
+                      value={proyecto.alto}
+                      onChange={(evento) =>
+                        actualizarProyectoMedida(proyecto.key, 'alto', evento.target.value)
+                      }
+                      className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 text-xs text-white font-mono focus:border-blue-500 focus:outline-none"
+                    />
+                  </label>
+                  <label className="text-[10px] text-slate-400 sm:col-span-2">
+                    Cantidad
+                    <input
+                      type="number"
+                      min="1"
+                      step="1"
+                      value={proyecto.cantidad}
+                      onChange={(evento) =>
+                        actualizarProyectoMedida(proyecto.key, 'cantidad', evento.target.value)
+                      }
+                      className="mt-1 w-full rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 text-xs text-white font-mono focus:border-blue-500 focus:outline-none"
+                    />
+                  </label>
+                </div>
+              </div>
+            ))}
+          </div>
+
           <div>
             <label htmlFor="medidas" className="block text-xs font-semibold text-slate-300 mb-1">
-              Cotas y observaciones <span className="text-red-400">*</span>
+              Observaciones generales de la visita <span className="text-red-400">*</span>
             </label>
             <textarea
               id="medidas"
@@ -2440,7 +3115,7 @@ export default function OrdenesTrabajo({ perfil, ordenInicialId = null, onOrdenA
               onChange={(evento) =>
                 setModalMedidas((prev) => ({ ...prev, texto: evento.target.value }))
               }
-              placeholder={'Ej.\nAncho total: 1.80 m\nAlto: 1.20 m\nMarco: 2" blanco\nObservación: muro desnivelado 5 mm'}
+              placeholder="Ej. Muro desnivelado 5 mm. Se debe retirar una ventana existente."
               className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-xs text-white font-mono focus:outline-none focus:border-blue-500 resize-none"
               required
             />

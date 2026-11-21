@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { AlertCircle, Calculator, Lock, Plus, Save, Trash2 } from 'lucide-react';
+import { AlertCircle, Calculator, Lock, Save, Trash2 } from 'lucide-react';
 
 import { supabase } from '../lib/supabase';
 import { FORMULAS_CORTE } from '../lib/constants';
@@ -299,8 +299,8 @@ export default function DescuentosSistema({
     try {
       const esPerfil = linea.tipo_pieza === 'perfil';
       const datos = {
-        descuento_mm: Math.max(0, numero(borrador.descuentoMm, 0)),
-        merma_porcentaje: Math.max(0, numero(borrador.merma, 0)),
+        descuento_mm: 0,
+        merma_porcentaje: 0,
         formula_largo: esPerfil ? borrador.base : 'fijo',
         formula_config: {
           base: esPerfil ? borrador.base : 'fijo',
@@ -313,11 +313,7 @@ export default function DescuentosSistema({
           angulo: esPerfil ? Math.max(0, numero(borrador.angulo, 0)) : 0,
           ladoAngulo:
             esPerfil && numero(borrador.angulo, 0) > 0 ? borrador.ladoAngulo || '' : '',
-          descuentosAdicionalesMm: esPerfil
-            ? borrador.descuentosAdicionalesMm.map((descuento) =>
-                Math.max(0, numero(descuento, 0)),
-              )
-            : [],
+          descuentosAdicionalesMm: [],
         },
         angulo_corte: esPerfil ? Math.max(0, numero(borrador.angulo, 0)) : 0,
       };
@@ -401,8 +397,8 @@ export default function DescuentosSistema({
       abierto={abierto}
       onClose={onClose}
       icono={<Calculator size={20} />}
-      titulo={sistema ? `Descuentos · ${sistema.nombre}` : 'Descuentos del sistema'}
-      subtitulo="Configura descuentos generales y por pieza, y consulta el despiece en tiempo real."
+      titulo={sistema ? `Fórmulas y descuentos · ${sistema.nombre}` : 'Fórmulas del sistema'}
+      subtitulo="Gestiona la fórmula de corte de cada perfil, los descuentos y el despiece en tiempo real."
       ancho="max-w-5xl"
     >
       {!puedeEditar && (
@@ -425,121 +421,6 @@ export default function DescuentosSistema({
           </p>
         </div>
       )}
-
-      {/* Descuentos generales y fabricación */}
-      <section className="space-y-2 rounded-2xl border border-slate-800 bg-slate-950 p-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <p className="text-[11px] font-bold uppercase tracking-wider text-sky-400">
-              Descuentos generales y fabricación
-            </p>
-            <p className="text-[10px] text-slate-500">
-              Configuración base de todos los materiales de este sistema. Los descuentos por pieza
-              se ajustan más abajo.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={guardarConfiguracion}
-            disabled={!puedeEditar || guardandoConfiguracion}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-sky-600 px-3 py-1.5 text-[10px] font-bold text-white transition-colors hover:bg-sky-500 disabled:opacity-50"
-          >
-            <Save size={13} /> {guardandoConfiguracion ? 'Guardando…' : 'Guardar configuración'}
-          </button>
-        </div>
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-          <div>
-            <label htmlFor="desc-vidrio-ancho" className={CLASE_ETIQUETA}>
-              Vidrio · ancho (mm)
-            </label>
-            <input
-              id="desc-vidrio-ancho"
-              type="number"
-              min="0"
-              step="0.1"
-              value={descuentoVidrioAncho}
-              onChange={(evento) => setDescuentoVidrioAncho(evento.target.value)}
-              disabled={!puedeEditar}
-              className={CLASE_INPUT}
-            />
-          </div>
-          <div>
-            <label htmlFor="desc-vidrio-alto" className={CLASE_ETIQUETA}>
-              Vidrio · alto (mm)
-            </label>
-            <input
-              id="desc-vidrio-alto"
-              type="number"
-              min="0"
-              step="0.1"
-              value={descuentoVidrioAlto}
-              onChange={(evento) => setDescuentoVidrioAlto(evento.target.value)}
-              disabled={!puedeEditar}
-              className={CLASE_INPUT}
-            />
-          </div>
-          <div>
-            <label htmlFor="desc-perfil-ancho" className={CLASE_ETIQUETA}>
-              Perfil · ancho (mm)
-            </label>
-            <input
-              id="desc-perfil-ancho"
-              type="number"
-              min="0"
-              step="0.1"
-              value={descuentoPerfilAncho}
-              onChange={(evento) => setDescuentoPerfilAncho(evento.target.value)}
-              disabled={!puedeEditar}
-              className={CLASE_INPUT}
-            />
-          </div>
-          <div>
-            <label htmlFor="desc-perfil-alto" className={CLASE_ETIQUETA}>
-              Perfil · alto (mm)
-            </label>
-            <input
-              id="desc-perfil-alto"
-              type="number"
-              min="0"
-              step="0.1"
-              value={descuentoPerfilAlto}
-              onChange={(evento) => setDescuentoPerfilAlto(evento.target.value)}
-              disabled={!puedeEditar}
-              className={CLASE_INPUT}
-            />
-          </div>
-          <div>
-            <label htmlFor="largo-barra" className={CLASE_ETIQUETA}>
-              Largo de barra (cm)
-            </label>
-            <input
-              id="largo-barra"
-              type="number"
-              min="1"
-              step="0.1"
-              value={largoBarra}
-              onChange={(evento) => setLargoBarra(evento.target.value)}
-              disabled={!puedeEditar}
-              className={CLASE_INPUT}
-            />
-          </div>
-          <div>
-            <label htmlFor="merma-sistema" className={CLASE_ETIQUETA}>
-              Merma general (%)
-            </label>
-            <input
-              id="merma-sistema"
-              type="number"
-              min="0"
-              step="0.1"
-              value={mermaGeneral}
-              onChange={(evento) => setMermaGeneral(evento.target.value)}
-              disabled={!puedeEditar}
-              className={CLASE_INPUT}
-            />
-          </div>
-        </div>
-      </section>
 
       {/* Medidas de la muestra */}
       <section className="space-y-2 rounded-2xl border border-slate-800 bg-slate-950 p-3">
@@ -587,11 +468,11 @@ export default function DescuentosSistema({
         <div className="flex flex-wrap items-end justify-between gap-2">
           <div>
             <p className="text-[11px] font-bold uppercase tracking-wider text-blue-400">
-              Descuentos por pieza
+              Fórmulas por perfil
             </p>
             <p className="text-[10px] text-slate-500">
-              Fórmula: (base − restar cm − descuento mm/10) ÷ dividir. El ángulo se usa para
-              cortes a inglete.
+              Fórmula: (medida base − restar cm) ÷ dividir. Configura cada perfil según el
+              sistema.
             </p>
           </div>
           <span className="text-[10px] font-mono text-slate-500">
@@ -755,111 +636,13 @@ export default function DescuentosSistema({
                       </>
                     )}
 
-                    <div>
-                      <label className={CLASE_ETIQUETA} htmlFor={`descuento-${linea.id}`}>
-                        Descuento principal (mm)
-                      </label>
-                      <input
-                        id={`descuento-${linea.id}`}
-                        type="number"
-                        min="0"
-                        step="0.1"
-                        value={borrador.descuentoMm}
-                        onChange={(evento) =>
-                          cambiarBorrador(linea.id, 'descuentoMm', evento.target.value)
-                        }
-                        disabled={!puedeEditar}
-                        className={CLASE_INPUT}
-                      />
-                    </div>
-                    <div>
-                      <label className={CLASE_ETIQUETA} htmlFor={`merma-${linea.id}`}>
-                        Merma (%)
-                      </label>
-                      <input
-                        id={`merma-${linea.id}`}
-                        type="number"
-                        min="0"
-                        step="0.1"
-                        value={borrador.merma}
-                        onChange={(evento) =>
-                          cambiarBorrador(linea.id, 'merma', evento.target.value)
-                        }
-                        disabled={!puedeEditar}
-                        className={CLASE_INPUT}
-                      />
-                    </div>
                   </div>
-
-                  {esPerfil && (
-                    <div className="space-y-2 rounded-xl border border-slate-800 bg-slate-900/50 p-2.5">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <div>
-                          <p className="text-[10px] font-semibold text-slate-300">
-                            Descuentos adicionales (mm)
-                          </p>
-                          <p className="text-[9px] text-slate-500">
-                            Se suman al descuento principal y se aplican juntos al largo de corte.
-                          </p>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => agregarDescuentoAdicional(linea.id)}
-                          disabled={!puedeEditar}
-                          className="inline-flex items-center gap-1 rounded-lg border border-blue-500/30 bg-blue-500/10 px-2.5 py-1.5 text-[10px] font-bold text-blue-300 transition-colors hover:bg-blue-500/20 disabled:opacity-40"
-                        >
-                          <Plus size={12} /> Agregar otro descuento
-                        </button>
-                      </div>
-                      {borrador.descuentosAdicionalesMm.map((descuento, descuentoIndice) => (
-                        <div
-                          key={`${linea.id}-descuento-adicional-${descuentoIndice}`}
-                          className="flex max-w-sm items-end gap-2"
-                        >
-                          <div className="flex-1">
-                            <label
-                              className={CLASE_ETIQUETA}
-                              htmlFor={`descuento-adicional-${linea.id}-${descuentoIndice}`}
-                            >
-                              Descuento adicional {descuentoIndice + 1} (mm)
-                            </label>
-                            <input
-                              id={`descuento-adicional-${linea.id}-${descuentoIndice}`}
-                              type="number"
-                              min="0"
-                              step="0.1"
-                              value={descuento}
-                              onChange={(evento) =>
-                                cambiarDescuentoAdicional(
-                                  linea.id,
-                                  descuentoIndice,
-                                  evento.target.value,
-                                )
-                              }
-                              disabled={!puedeEditar}
-                              className={CLASE_INPUT}
-                            />
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => quitarDescuentoAdicional(linea.id, descuentoIndice)}
-                            disabled={!puedeEditar}
-                            aria-label={`Quitar descuento adicional ${descuentoIndice + 1}`}
-                            title="Quitar descuento"
-                            className="inline-flex h-8 w-9 items-center justify-center rounded-lg border border-red-500/25 text-red-400 transition-colors hover:bg-red-500/10 disabled:opacity-40"
-                          >
-                            <Trash2 size={13} />
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
 
                   {!esPerfil && (
                     <p className="text-[10px] text-slate-500">
                       {linea.tipo_pieza === 'vidrio'
-                        ? 'El corte del vidrio usa el descuento general de vidrio de arriba; aquí ajustas la cantidad de piezas.'
-                        : 'Este material no se corta: solo se descuenta del inventario en la cantidad indicada.'}
+                        ? 'Se calcula el área del vidrio y las piezas indicadas.'
+                        : 'Este material no es un perfil de corte.'}
                     </p>
                   )}
 

@@ -4,7 +4,6 @@ import {
   Calculator,
   Edit2,
   Layers,
-  Lock,
   Package,
   Plus,
   RefreshCw,
@@ -855,17 +854,6 @@ export default function SistemasTrabajo({ permisos }) {
         )}
       </div>
 
-      {!puedeEditar && (
-        <div className="flex items-start gap-2.5 rounded-2xl border border-amber-500/30 bg-amber-950/40 px-4 py-3 text-[11px] leading-relaxed text-amber-200">
-          <Lock size={15} className="mt-0.5 shrink-0" />
-          <p>
-            Solo el <strong>Super Admin</strong> y el <strong>Jefe de Taller</strong> pueden crear
-            o modificar sistemas, recetas, fórmulas y descuentos de fabricación. Puedes consultar
-            las medidas y recetas, pero no editarlas.
-          </p>
-        </div>
-      )}
-
       <div className="bg-slate-900 p-4 rounded-2xl border border-slate-800 shadow-lg">
         <div className="relative">
           <Search className="absolute left-3.5 top-3 text-slate-500" size={16} />
@@ -879,15 +867,16 @@ export default function SistemasTrabajo({ permisos }) {
         </div>
       </div>
 
+      {puedeEditar && (
       <section className="rounded-2xl border border-emerald-500/25 bg-gradient-to-br from-emerald-950/40 to-slate-900 p-4 shadow-lg">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div className="max-w-xl">
             <h2 className="flex items-center gap-2 text-sm font-bold text-emerald-300">
-              <Calculator size={17} /> Descuentos de sistemas guardados
+              <Calculator size={17} /> Fórmulas y descuentos por sistema
             </h2>
             <p className="mt-1 text-[11px] leading-relaxed text-slate-400">
-              Selecciona un sistema existente para añadir o modificar sus descuentos generales y
-              los de cada perfil, vidrio o accesorio.
+              Selecciona un sistema guardado para configurar la fórmula de corte de cada perfil,
+              junto con los descuentos generales, el largo de barra y la merma.
             </p>
           </div>
           <div className="flex w-full flex-col gap-2 sm:w-auto sm:min-w-[320px] sm:flex-row">
@@ -919,11 +908,12 @@ export default function SistemasTrabajo({ permisos }) {
               disabled={!sistemaDescuentosId}
               className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-bold text-white transition-colors hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-40"
             >
-              <Calculator size={15} /> Configurar descuentos
+              <Calculator size={15} /> Gestionar fórmulas
             </button>
           </div>
         </div>
       </section>
+      )}
 
       {error && (
         <div
@@ -991,11 +981,12 @@ export default function SistemasTrabajo({ permisos }) {
                         <button
                           type="button"
                           onClick={() => abrirMateriales(sistema)}
-                          title="Configura perfiles, vidrios, accesorios, cantidades y fórmulas de corte"
+                          title={puedeEditar ? "Configura perfiles, vidrios, accesorios, cantidades y fórmulas de corte" : "Ver perfiles, vidrios, accesorios y cantidades"}
                           className="px-3 py-1.5 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 font-bold rounded-xl border border-blue-500/20 transition-all inline-flex items-center gap-1.5 text-[11px] whitespace-nowrap"
                         >
-                          <Package size={14} /> Materiales y cantidades
+                          <Package size={14} /> {puedeEditar ? 'Materiales y cantidades' : 'Ver materiales'}
                         </button>
+                        {puedeEditar && (
                         <button
                           type="button"
                           onClick={() => abrirDescuentos(sistema)}
@@ -1004,6 +995,7 @@ export default function SistemasTrabajo({ permisos }) {
                         >
                           <Calculator size={14} /> Configurar descuentos
                         </button>
+                        )}
                       </div>
                     </td>
                     {puedeEditar && (

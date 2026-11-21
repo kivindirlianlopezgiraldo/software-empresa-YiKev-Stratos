@@ -61,7 +61,7 @@ export default function DespieceCalculadora({ permisos }) {
           supabase
             .from('sistema_materiales')
             .select(
-              `id, cantidad_requerida, tipo_pieza, formula_largo, ${
+                `id, material_nombre, cantidad_requerida, tipo_pieza, formula_largo, ${
                 avanzada ? 'formula_config, angulo_corte,' : ''
               } descuento_mm, merma_porcentaje, es_vidrio, orden,
               material:material_id (id, nombre, codigo_referencia, unidad_medida, precio_venta, categoria)`,
@@ -71,11 +71,62 @@ export default function DespieceCalculadora({ permisos }) {
 
         let { data, error: errorConsulta } = await seleccionarReceta(true);
         let usaRespaldo = false;
-        if (errorConsulta && /formula_config|angulo_corte/i.test(errorConsulta.message || '')) {
-          usaRespaldo = true;
-          const respaldo = await seleccionarReceta(false);
-          data = respaldo.data;
-          errorConsulta = respaldo.error;
+
+        if (errorConsulta) {
+          const mensaje = errorConsulta.message || '';
+
+          if (/material_nombre/i.test(mensaje)) {
+            usaRespaldo = true;
+            const respaldoAvanzado = await supabase
+              .from('sistema_materiales')
+              .select(
+                `id, cantidad_requerida, tipo_pieza, formula_largo, formula_config, angulo_corte,
+                 descuento_mm, merma_porcentaje, es_vidrio, orden,
+                 material:material_id (id, nombre, codigo_referencia, unidad_medida, precio_venta, categoria)`,
+              )
+              .eq('sistema_id', sistemaId)
+              .order('orden', { ascending: true });
+
+            data = (respaldoAvanzado.data ?? []).map((linea) => ({
+              ...linea,
+              material_nombre: linea.material?.nombre || null,
+            }));
+            errorConsulta = respaldoAvanzado.error;
+          }
+
+          if (
+            errorConsulta &&
+            /formula_config|angulo_corte/i.test(errorConsulta.message || '')
+          ) {
+            usaRespaldo = true;
+            const respaldo = await seleccionarReceta(false);
+            data = (respaldo.data ?? []).map((linea) => ({
+              ...linea,
+              material_nombre: linea.material_nombre || linea.material?.nombre || null,
+            }));
+            errorConsulta = respaldo.error;
+          }
+
+          if (
+            errorConsulta &&
+            /material_nombre/i.test(errorConsulta.message || '')
+          ) {
+            usaRespaldo = true;
+            const respaldoBasico = await supabase
+              .from('sistema_materiales')
+              .select(
+                `id, cantidad_requerida, tipo_pieza, formula_largo, descuento_mm,
+                 merma_porcentaje, es_vidrio, orden,
+                 material:material_id (id, nombre, codigo_referencia, unidad_medida, precio_venta, categoria)`,
+              )
+              .eq('sistema_id', sistemaId)
+              .order('orden', { ascending: true });
+            data = (respaldoBasico.data ?? []).map((linea) => ({
+              ...linea,
+              material_nombre: linea.material?.nombre || null,
+            }));
+            errorConsulta = respaldoBasico.error;
+          }
         }
         if (errorConsulta) throw errorConsulta;
         if (activo) {

@@ -161,6 +161,20 @@ export function imprimirOrdenProduccion({ empresa, orden, items = [], despiece, 
   const cortes = [];
   (despiece?.items || []).forEach((item) => {
     (item.cortes || []).forEach((corte) => {
+      const retalesUsados = [...new Set(
+        (corte.planCorte || [])
+          .filter((pieza) => pieza.fuente === 'retal')
+          .map((pieza) => [
+            pieza.retalCodigo,
+            pieza.largoCm,
+            pieza.ubicacion,
+          ].filter(Boolean).join(' · ')),
+      )].join('<br />');
+      const barrasUsadas = [...new Set(
+        (corte.planCorte || [])
+          .filter((pieza) => pieza.fuente === 'barra nueva' && pieza.barraNumero)
+          .map((pieza) => `Barra ${pieza.barraNumero}`),
+      )].join('<br />');
       cortes.push(`
         <tr>
           <td>${escapar(item.descripcion)}</td>
@@ -179,8 +193,8 @@ export function imprimirOrdenProduccion({ empresa, orden, items = [], despiece, 
                 }`
               : '—'
           }</td>
-          <td class="centro mono">${Number(corte.piezasRetal || 0) || '—'}</td>
-          <td class="centro mono">${Number(corte.barrasNuevas ?? corte.barras ?? 0) || '—'}</td>
+          <td class="centro mono">${retalesUsados || `${Number(corte.piezasRetal || 0) || '—'} pieza(s)`}</td>
+          <td class="centro mono">${barrasUsadas || `${Number(corte.barrasNuevas ?? corte.barras ?? 0) || '—'}`}</td>
         </tr>`);
     });
   });
@@ -194,6 +208,7 @@ export function imprimirOrdenProduccion({ empresa, orden, items = [], despiece, 
           <td>${escapar(retal.color || 'Sin definir')}</td>
           <td class="centro mono">${cm(retal.largoCm)}</td>
           <td class="centro mono">${Number(retal.piezas || 0)}</td>
+          <td>${escapar(retal.ubicacion || 'Sin ubicación')}</td>
           <td class="centro mono">${cm(retal.sobranteCm)}</td>
           <td class="centro mono">${Number(retal.aprovechamiento || 0)}%</td>
         </tr>`,
@@ -202,15 +217,25 @@ export function imprimirOrdenProduccion({ empresa, orden, items = [], despiece, 
 
   const barras = (despiece?.barrasNuevas || [])
     .map(
-      (barra) => `
+      (barra) => {
+        const detalleBarras = (barra.detalleBarras || [])
+          .map((detalle) => {
+            const cortesDetalle = (detalle.piezas || [])
+              .map((pieza) => `${escapar(pieza.descripcion)} ${cm(pieza.largoCm)}`)
+              .join(', ');
+            return `Barra ${detalle.numero}: ${cortesDetalle || 'Sin cortes'} · sobrante ${cm(detalle.sobranteCm)}`;
+          })
+          .join('<br />');
+        return `
         <tr>
-          <td><strong>${escapar(barra.nombre)}</strong></td>
+          <td><strong>${escapar(barra.nombre)}</strong>${detalleBarras ? `<br /><span class="nota">${detalleBarras}</span>` : ''}</td>
           <td>${escapar(barra.color || 'Sin definir')}</td>
           <td class="centro mono fuerte">${Number(barra.barras || 0)}</td>
           <td class="centro mono">${Number(barra.piezas || 0)}</td>
           <td class="centro mono">${cm(barra.sobranteCm)}</td>
           <td class="centro mono">${Number(barra.barras || 0) * largoBarraCm} cm</td>
-        </tr>`,
+        </tr>`;
+      },
     )
     .join('');
 
@@ -252,11 +277,22 @@ export function imprimirOrdenProduccion({ empresa, orden, items = [], despiece, 
   const datos = [
     ['Código de orden', orden.codigo_orden || '—'],
     ['Estado', orden.estado || '—'],
+    ['Origen', orden.origen === 'produccion' ? 'Cliente con medidas / directo a producción' : 'Medición en terreno'],
     ['Cliente', orden.cliente_nombre || '—'],
     ['Teléfono', orden.cliente_telefono || '—'],
     ['Dirección', orden.cliente_direccion || '—'],
     ['Barrio / sector', orden.cliente_barrio || '—'],
     ['Instalador', orden.instalador_nombre || '—'],
+    [
+      'Tipo de entrega',
+      orden.tipo_entrega === 'entrega_cliente'
+        ? 'Entrega directa al dueño'
+        : orden.tipo_entrega === 'instalacion'
+          ? 'Instalación por el taller'
+          : 'No definido',
+    ],
+    ['Medido por', orden.medido_por || '—'],
+    ['Fecha de medición', orden.medido_en ? formatFechaHora(orden.medido_en) : '—'],
     ['Producción', orden.produccion_nombre || '—'],
     ['Fecha de la orden', formatFechaHora(orden.creado_en)],
     ['Generado por', generadoPor || '—'],
@@ -354,6 +390,16 @@ export function imprimirOrdenProduccion({ empresa, orden, items = [], despiece, 
       ${datos}
     </div>
 
+    ${orden.medidas_terreno ? `
+      <h2>Medidas tomadas</h2>
+      <div class="notas">${escapar(orden.medidas_terreno)}</div>
+    ` : ''}
+
+    ${orden.notas_medidas ? `
+      <h2>Notas de medición</h2>
+      <div class="notas">${escapar(orden.notas_medidas)}</div>
+    ` : ''}
+
     <div class="resumen">
       <div class="tarjeta"><span>Proyectos</span><strong>${totales.items ?? proyectosBase.length}</strong></div>
       <div class="tarjeta"><span>Perfil cortado</span><strong>${metros(totales.metrosPerfil || 0)}</strong></div>
@@ -415,6 +461,7 @@ export function imprimirOrdenProduccion({ empresa, orden, items = [], despiece, 
           <th style="width: 90px">Color</th>
           <th class="centro" style="width: 60px">Largo</th>
           <th class="centro" style="width: 48px">Piezas</th>
+          <th style="width: 100px">Ubicación</th>
           <th class="centro" style="width: 64px">Sobrante</th>
           <th class="centro" style="width: 48px">Uso</th>
         </tr>

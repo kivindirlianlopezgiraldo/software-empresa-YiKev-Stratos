@@ -43,6 +43,43 @@ export function respuestaLocal(texto, modo = 'landing', contexto = {}) {
   const incluye = (...palabras) => palabras.some((palabra) => t.includes(normalizar(palabra)));
 
   if (modo === 'empleado') {
+    const sistemas = Array.isArray(contexto.sistemas) ? contexto.sistemas : [];
+    const sistemaCoincidente = sistemas.find((sistema) =>
+      t.includes(normalizar(sistema.nombre || '')),
+    );
+
+    if (
+      sistemaCoincidente &&
+      (incluye('material', 'lleva', 'necesita', 'receta', 'perfil', 'formula', 'fórmula'))
+    ) {
+      const materiales = (sistemaCoincidente.materiales || []).map((material) => {
+        const nombre = material.nombre || 'Material sin nombre';
+        if (material.tipo === 'perfil') {
+          const formula =
+            material.formula === 'referencia'
+              ? `medida de ${material.referencia || 'otra pieza'}`
+              : ({
+                  ancho: 'ancho del vano',
+                  alto: 'alto del vano',
+                  ancho_mitad: 'ancho del vano ÷ 2',
+                  alto_mitad: 'alto del vano ÷ 2',
+                  perimetro: 'perímetro (2 × ancho + 2 × alto)',
+                  fijo: 'cantidad fija',
+                }[material.formula] || material.formula);
+          const restar =
+            Number(material.restarCm) > 0 ? `, restar ${material.restarCm} cm` : '';
+          const dividir =
+            Number(material.dividir) > 1 ? `, dividir entre ${material.dividir}` : '';
+          return `• ${nombre}: ${formula}${restar}${dividir}`;
+        }
+        return `• ${nombre}: ${material.cantidad || 1} ${material.tipo === 'vidrio' ? 'pieza(s)' : 'unidad(es)'}`;
+      });
+
+      return (
+        `Sistema ${sistemaCoincidente.nombre}:${materiales.length ? `\n${materiales.join('\n')}` : '\nNo tiene materiales registrados todavía.'}`
+      );
+    }
+
     if (incluye('orden', 'produccion', 'taller', 'despiece')) {
       return (
         'Para mover una orden al taller: abre “Órdenes y Medidas”, revisa que tenga dirección y ' +

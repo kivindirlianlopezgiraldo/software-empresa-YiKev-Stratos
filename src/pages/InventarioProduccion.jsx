@@ -589,24 +589,25 @@ export default function InventarioProduccion({ perfil, permisos: permisosProp })
             ))}
           </select>
         </div>
-        <div className="relative">
-          <User className="absolute left-3.5 top-3 text-slate-500 pointer-events-none" size={16} />
-          <select
-            value={filtroColaborador}
-            onChange={(evento) => setFiltroColaborador(evento.target.value)}
-            aria-label="Filtrar por colaborador"
-            disabled={esSoloProduccion}
-            className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-10 pr-4 py-2.5 text-xs text-white focus:outline-none focus:border-blue-500 appearance-none disabled:opacity-60"
-          >
-            <option value="TODOS">Todos los colaboradores</option>
-            <option value="SIN_ASIGNAR">Sin asignar</option>
-            {colaboradores.map((colaborador) => (
-              <option key={colaborador.id} value={colaborador.id}>
-                {colaborador.nombre_completo}
-              </option>
-            ))}
-          </select>
-        </div>
+        {!esSoloProduccion && (
+          <div className="relative">
+            <User className="absolute left-3.5 top-3 text-slate-500 pointer-events-none" size={16} />
+            <select
+              value={filtroColaborador}
+              onChange={(evento) => setFiltroColaborador(evento.target.value)}
+              aria-label="Filtrar por colaborador"
+              className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-10 pr-4 py-2.5 text-xs text-white focus:outline-none focus:border-blue-500 appearance-none"
+            >
+              <option value="TODOS">Todos los colaboradores</option>
+              <option value="SIN_ASIGNAR">Sin asignar</option>
+              {colaboradores.map((colaborador) => (
+                <option key={colaborador.id} value={colaborador.id}>
+                  {colaborador.nombre_completo}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
       </div>
 
       {error && (
@@ -636,7 +637,7 @@ export default function InventarioProduccion({ perfil, permisos: permisosProp })
                 <th className="p-4">Stock</th>
                 <th className="p-4">Ubicación</th>
                 <th className="p-4">A cargo</th>
-                <th className="p-4 text-right">Acciones</th>
+                {permisos.puedeInventarioProduccion && <th className="p-4 text-right">Acciones</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60">
@@ -705,6 +706,7 @@ export default function InventarioProduccion({ perfil, permisos: permisosProp })
                           <span className="text-slate-500">Sin asignar</span>
                         )}
                       </td>
+                      {permisos.puedeInventarioProduccion && (
                       <td className="p-4 text-right whitespace-nowrap">
                         <div className="inline-flex flex-wrap items-center justify-end gap-1.5">
                           {permisos.puedeInventarioProduccion && (
@@ -749,6 +751,7 @@ export default function InventarioProduccion({ perfil, permisos: permisosProp })
                           )}
                         </div>
                       </td>
+                      )}
                     </tr>
                   );
                 })
@@ -870,18 +873,29 @@ export default function InventarioProduccion({ perfil, permisos: permisosProp })
                     </td>
                     <td className="p-4 text-slate-300">{retal.ubicacion || '—'}</td>
                     <td className="p-4">
-                      <button
-                        type="button"
-                        onClick={() => alternarDisponible(retal)}
-                        disabled={!permisos.puedeInventarioProduccion}
-                        className={`px-2 py-1 rounded-lg text-[10px] font-bold border transition-colors ${
-                          retal.disponible === false
-                            ? 'bg-slate-800 text-slate-400 border-slate-700'
-                            : 'bg-emerald-500/10 text-emerald-300 border-emerald-500/20 hover:bg-emerald-500/20'
-                        }`}
-                      >
-                        {retal.disponible === false ? 'No disponible' : 'Disponible'}
-                      </button>
+                      {permisos.puedeInventarioProduccion ? (
+                        <button
+                          type="button"
+                          onClick={() => alternarDisponible(retal)}
+                          className={`px-2 py-1 rounded-lg text-[10px] font-bold border transition-colors ${
+                            retal.disponible === false
+                              ? 'bg-slate-800 text-slate-400 border-slate-700'
+                              : 'bg-emerald-500/10 text-emerald-300 border-emerald-500/20 hover:bg-emerald-500/20'
+                          }`}
+                        >
+                          {retal.disponible === false ? 'No disponible' : 'Disponible'}
+                        </button>
+                      ) : (
+                        <span
+                          className={`px-2 py-1 rounded-lg text-[10px] font-bold border ${
+                            retal.disponible === false
+                              ? 'bg-slate-800 text-slate-400 border-slate-700'
+                              : 'bg-emerald-500/10 text-emerald-300 border-emerald-500/20'
+                          }`}
+                        >
+                          {retal.disponible === false ? 'No disponible' : 'Disponible'}
+                        </span>
+                      )}
                     </td>
                     <td className="p-4 text-right whitespace-nowrap">
                       {permisos.puedeInventarioProduccion && (

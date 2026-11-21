@@ -8,9 +8,11 @@ import {
   Landmark,
   MapPin,
   Phone,
+  Plus,
   RefreshCw,
   Save,
   ShieldCheck,
+  Trash2,
   UserCheck,
 } from 'lucide-react';
 
@@ -87,6 +89,8 @@ export default function Empresa({ perfil }) {
   const [error, setError] = useState('');
   const [errorForm, setErrorForm] = useState('');
   const [recarga, setRecarga] = useState(0);
+  const [tiposMaterial, setTiposMaterial] = useState([]);
+  const [nuevoTipoMaterial, setNuevoTipoMaterial] = useState('');
 
   const { alerta, mostrar, cerrar } = useToast();
 
@@ -140,6 +144,24 @@ export default function Empresa({ perfil }) {
     };
   }, [consultarEmpresa, recarga]);
 
+  useEffect(() => {
+    let activo = true;
+
+    (async () => {
+      const { data, error: errorTipos } = await supabase
+        .from('tipos_material_trabajo')
+        .select('id,nombre,activo')
+        .order('nombre', { ascending: true });
+
+      if (!activo || errorTipos) return;
+      setTiposMaterial(data ?? []);
+    })();
+
+    return () => {
+      activo = false;
+    };
+  }, [recarga]);
+
   const actualizarCampo = (campo, valor) => {
     setEmpresa((prev) => ({ ...prev, [campo]: valor }));
     if (errorForm) setErrorForm('');
@@ -148,6 +170,48 @@ export default function Empresa({ perfil }) {
   const reintentar = () => {
     setCargando(true);
     setRecarga((valor) => valor + 1);
+  };
+
+  const agregarTipoMaterial = async () => {
+    const nombre = nuevoTipoMaterial.trim();
+    if (!nombre) return;
+
+    if (
+      tiposMaterial.some(
+        (tipo) => tipo.nombre?.toLocaleLowerCase() === nombre.toLocaleLowerCase(),
+      )
+    ) {
+      mostrar('Tipo ya registrado', 'Este vidrio o acrílico ya está disponible.', 'advertencia');
+      return;
+    }
+
+    const { error: errorInsert } = await supabase
+      .from('tipos_material_trabajo')
+      .insert([{ nombre, activo: true }]);
+
+    if (errorInsert) {
+      mostrar('No se pudo agregar', errorInsert.message || 'Error al guardar el tipo.', 'advertencia');
+      return;
+    }
+
+    setNuevoTipoMaterial('');
+    setRecarga((valor) => valor + 1);
+    mostrar('Tipo agregado', `${nombre} ya está disponible en las órdenes.`, 'exito');
+  };
+
+  const eliminarTipoMaterial = async (tipo) => {
+    const { error: errorDelete } = await supabase
+      .from('tipos_material_trabajo')
+      .delete()
+      .eq('id', tipo.id);
+
+    if (errorDelete) {
+      mostrar('No se pudo eliminar', errorDelete.message || 'Error al eliminar el tipo.', 'advertencia');
+      return;
+    }
+
+    setRecarga((valor) => valor + 1);
+    mostrar('Tipo eliminado', `${tipo.nombre} dejó de estar disponible.`, 'exito');
   };
 
   const handleGuardar = async (evento) => {
@@ -527,6 +591,63 @@ export default function Empresa({ perfil }) {
             </div>
           </Tarjeta>
         </div>
+
+        <Tarjeta
+          icono={<ShieldCheck size={18} />}
+          titulo="Tipos de vidrio y acrílico"
+          descripcion="Administra las opciones que aparecen al crear proyectos en Órdenes de Trabajo."
+        >
+          <div className="flex flex-col sm:flex-row gap-2">
+            <input
+              type="text"
+              value={nuevoTipoMaterial}
+              onChange={(evento) => setNuevoTipoMaterial(evento.target.value)}
+              onKeyDown={(evento) => {
+                if (evento.key === 'Enter') {
+                  evento.preventDefault();
+                  agregarTipoMaterial();
+                }
+              }}
+              placeholder="Ej. Acrílico verde, Vidrio mate..."
+              className={claseInput}
+            />
+            <button
+              type="button"
+              onClick={agregarTipoMaterial}
+              disabled={!nuevoTipoMaterial.trim()}
+              className="flex shrink-0 items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-xs font-bold text-white hover:bg-blue-500 disabled:opacity-50"
+            >
+              <Plus size={15} /> Agregar tipo
+            </button>
+          </div>
+
+          {tiposMaterial.length > 0 ? (
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              {tiposMaterial.map((tipo) => (
+                <div
+                  key={tipo.id}
+                  className="flex items-center justify-between gap-2 rounded-xl border border-slate-800 bg-slate-950 px-3 py-2"
+                >
+                  <span className="truncate text-xs font-semibold text-slate-200">
+                    {tipo.nombre}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => eliminarTipoMaterial(tipo)}
+                    aria-label={`Eliminar ${tipo.nombre}`}
+                    className="shrink-0 rounded-lg p-1.5 text-red-400 hover:bg-red-500/10 hover:text-red-300"
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-[11px] text-slate-500">
+              Aplica la migración 016 para habilitar el catálogo configurable.
+            </p>
+          )}
+        </Tarjeta>
 
         <Tarjeta
           icono={<Clock size={18} />}

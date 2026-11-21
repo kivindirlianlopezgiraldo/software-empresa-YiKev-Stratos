@@ -1139,10 +1139,14 @@ export default function Herramientas({ perfil, permisos }) {
           { id: 'instalaciones', etiqueta: 'Instalaciones', Icono: Package },
         ]
       : []),
-    { id: 'kits', etiqueta: 'Kits por rol', Icono: Package },
-    { id: 'checklists', etiqueta: 'Checklists', Icono: ClipboardCheck },
-    { id: 'registros', etiqueta: 'Registros', Icono: ClipboardList },
-    { id: 'movimientos', etiqueta: 'Movimientos', Icono: History },
+    ...(puedeAsignar ? [{ id: 'kits', etiqueta: 'Kits por rol', Icono: Package }] : []),
+    ...((puedeAsignar || puedeUsar)
+      ? [{ id: 'checklists', etiqueta: 'Checklists', Icono: ClipboardCheck }]
+      : []),
+    ...(puedeUsar ? [{ id: 'registros', etiqueta: 'Registros', Icono: ClipboardList }] : []),
+    ...(puedeAsignar
+      ? [{ id: 'movimientos', etiqueta: 'Movimientos', Icono: History }]
+      : []),
   ];
 
   return (

@@ -32,6 +32,7 @@ import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Perfil from './pages/Perfil';
 import Colaboradores from './pages/Colaboradores';
+import Clientes from './pages/Clientes';
 import Empresa from './pages/Empresa';
 import SitioWeb from './pages/SitioWeb';
 import Inventario from './pages/Inventario';
@@ -56,7 +57,7 @@ const MENU = [
     id: 'ordenes',
     etiqueta: 'Órdenes y Medidas',
     Icono: Wrench,
-    permitido: () => true,
+    permitido: (p) => p.puedeVerOrdenes,
   },
   {
     id: 'sistemas',
@@ -95,6 +96,12 @@ const MENU = [
     permitido: (p) => p.puedeAdministrar,
   },
   {
+    id: 'clientes',
+    etiqueta: 'Clientes',
+    Icono: UserCheck,
+    permitido: (p) => p.puedeAdministrar || p.esJefe,
+  },
+  {
     id: 'empresa',
     etiqueta: 'Empresa',
     Icono: Building2,
@@ -129,6 +136,7 @@ const MENU = [
 export default function App() {
   const [session, setSession] = useState(null);
   const [perfil, setPerfil] = useState(null);
+  const [contextoChatEmpleado, setContextoChatEmpleado] = useState({});
   const [cargando, setCargando] = useState(true);
   const [errorPerfil, setErrorPerfil] = useState('');
   const [vistaActual, setVistaActual] = useState('dashboard');
@@ -356,6 +364,92 @@ export default function App() {
       clearInterval(temporizador);
     };
   }, [perfil?.id, vistaEfectiva, recargarContador]);
+
+  useEffect(() => {
+    if (!perfil?.id) {
+      setContextoChatEmpleado({});
+      return undefined;
+    }
+
+    let activo = true;
+
+    (async () => {
+      try {
+        const [resSistemas, resMaterialesInicial, resEmpresa] = await Promise.all([
+          supabase
+            .from('sistemas_trabajo')
+            .select(
+              'id,nombre,linea,tipo,descripcion,largo_barra_cm,descuento_vidrio_ancho_mm,descuento_vidrio_alto_mm,descuento_perfil_ancho_mm,descuento_perfil_alto_mm,merma_porcentaje',
+            )
+            .order('nombre', { ascending: true }),
+          supabase
+            .from('sistema_materiales')
+            .select(
+              'sistema_id,cantidad_requerida,tipo_pieza,formula_largo,formula_config,descuento_mm,merma_porcentaje,material_nombre,material:material_id(nombre,codigo_referencia,unidad_medida,categoria)',
+            )
+            .order('orden', { ascending: true }),
+          supabase
+            .from('empresa_config')
+            .select('nombre_comercial,ciudad,departamento_geografico,horario')
+            .eq('id', 1)
+            .maybeSingle(),
+        ]);
+
+        if (!activo) return;
+        if (resSistemas.error) throw resSistemas.error;
+
+        let materiales = resMaterialesInicial.error ? [] : resMaterialesInicial.data ?? [];
+        if (
+          resMaterialesInicial.error &&
+          /formula_config|material_nombre/i.test(resMaterialesInicial.error.message || '')
+        ) {
+          const respaldo = await supabase
+            .from('sistema_materiales')
+            .select(
+              'sistema_id,cantidad_requerida,tipo_pieza,formula_largo,descuento_mm,merma_porcentaje,material:material_id(nombre,codigo_referencia,unidad_medida,categoria)',
+            )
+            .order('orden', { ascending: true });
+          materiales = respaldo.error ? [] : respaldo.data ?? [];
+        }
+        const sistemas = (resSistemas.data ?? []).map((sistema) => ({
+          ...sistema,
+          materiales: materiales
+            .filter((linea) => linea.sistema_id === sistema.id)
+            .map((linea) => ({
+              nombre: linea.material?.nombre || linea.material_nombre || 'Material sin nombre',
+              tipo: linea.tipo_pieza || 'accesorio',
+              cantidad: linea.cantidad_requerida,
+              formula: linea.formula_config?.base || linea.formula_largo || 'fijo',
+              restarCm: linea.formula_config?.restarCm ?? 0,
+              dividir: linea.formula_config?.dividir ?? 1,
+              referencia: linea.formula_config?.referencia || '',
+              angulo: linea.formula_config?.angulo ?? 0,
+              ladoAngulo: linea.formula_config?.ladoAngulo || '',
+            })),
+        }));
+
+        setContextoChatEmpleado({
+          usuario: perfil?.nombre_completo || null,
+          rol: perfil?.rol || null,
+          vista: vistaEfectiva,
+          empresa: resEmpresa.data?.nombre_comercial || 'YiKev Stratos',
+          sistemas,
+        });
+      } catch (err) {
+        if (activo) {
+          setContextoChatEmpleado({
+            usuario: perfil?.nombre_completo || null,
+            rol: perfil?.rol || null,
+            vista: vistaEfectiva,
+          });
+        }
+      }
+    })();
+
+    return () => {
+      activo = false;
+    };
+  }, [perfil?.id, perfil?.nombre_completo, perfil?.rol, vistaEfectiva]);
 
   const abrirOrdenDesdeNotificacion = (ordenId) => {
     setOrdenDestacada(ordenId || null);
@@ -715,6 +809,7 @@ export default function App() {
               )}
               {vistaEfectiva === 'inventario' && <Inventario permisos={permisos} />}
               {vistaEfectiva === 'colaboradores' && <Colaboradores perfil={perfil} />}
+              {vistaEfectiva === 'clientes' && <Clientes perfil={perfil} />}
               {vistaEfectiva === 'empresa' && <Empresa perfil={perfil} />}
               {vistaEfectiva === 'sitio' && <SitioWeb perfil={perfil} />}
               {vistaEfectiva === 'pruebas' && permisos.esSuperAdmin && <PruebasSistema />}
@@ -738,6 +833,7 @@ export default function App() {
           usuario: perfil?.nombre_completo || null,
           rol: perfil?.rol || null,
           vista: vistaEfectiva,
+          ...contextoChatEmpleado,
         }}
       />
       {(permisos.esAdmin || permisos.esJefe) && modalExtensionHorario ? (

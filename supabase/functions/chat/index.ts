@@ -44,7 +44,12 @@ Nunca prometas plazos exactos; explica que dependen de medidas, materiales y dis
 Nunca reveles información interna del ERP, contraseñas ni datos de otros clientes.`;
 
 const PROMPT_EMPLEADO = `Eres el asistente interno de ${EMPRESA.nombre} para el equipo del taller.
-Respondes en español, de forma breve y operativa (máximo 150 palabras), con pasos concretos.
+Respondes en español, de forma clara y útil (máximo 200 palabras), con pasos concretos.
+Puedes responder cualquier pregunta relacionada con fabricación, aluminio, vidrio, acrílico,
+medidas, perfiles, fórmulas de corte, inventario, órdenes y procesos del taller.
+Usa el contexto real incluido como fuente principal. Si el contexto contiene sistemas y
+materiales, identifica el sistema solicitado y enumera sus perfiles, fórmulas y cantidades.
+Si falta información en el contexto, dilo con claridad y señala dónde verificarla.
 Flujo del ERP:
 - Orden: se crea en “Órdenes y Medidas” por admin o jefe de taller. La dirección es obligatoria.
 - La orden puede ir a medición (instalador) o directo a producción.
@@ -56,10 +61,57 @@ Flujo del ERP:
 - Sistemas y Recetas solo los editan admin y jefe de taller.
 No inventes datos de órdenes ni des acceso a información de otros usuarios. Si falta un dato, indica qué módulo revisar.`;
 
-function respuestaLocal(texto: string, modo: string): string {
+function respuestaLocal(texto: string, modo: string, contexto: Record<string, unknown> = {}): string {
   const t = String(texto || '').toLowerCase();
 
   if (modo === 'empleado') {
+    const sistemas = Array.isArray(contexto.sistemas)
+      ? contexto.sistemas as Array<{
+          nombre?: string;
+          materiales?: Array<{
+            nombre?: string;
+            tipo?: string;
+            cantidad?: number;
+            formula?: string;
+            restarCm?: number;
+            dividir?: number;
+            referencia?: string;
+          }>;
+        }>
+      : [];
+    const sistema = sistemas.find((item) =>
+      item.nombre && t.includes(String(item.nombre).toLowerCase()),
+    );
+
+    if (
+      sistema &&
+      /(material|lleva|necesita|receta|perfil|formula|fórmula)/.test(t)
+    ) {
+      const materiales = (sistema.materiales || []).map((material) => {
+        if (material.tipo === 'perfil') {
+          const base =
+            material.formula === 'ancho'
+              ? 'ancho del vano'
+              : material.formula === 'alto'
+                ? 'alto del vano'
+                : material.formula === 'ancho_mitad'
+                  ? 'ancho del vano ÷ 2'
+                  : material.formula === 'alto_mitad'
+                    ? 'alto del vano ÷ 2'
+                    : material.formula === 'perimetro'
+                      ? 'perímetro'
+                      : material.formula === 'referencia'
+                        ? `medida de ${material.referencia || 'otra pieza'}`
+                        : material.formula || 'fijo';
+          const restar = Number(material.restarCm) > 0 ? `, restar ${material.restarCm} cm` : '';
+          const dividir = Number(material.dividir) > 1 ? `, dividir entre ${material.dividir}` : '';
+          return `• ${material.nombre || 'Material sin nombre'}: ${base}${restar}${dividir}`;
+        }
+        return `• ${material.nombre || 'Material sin nombre'}: ${material.cantidad || 1} unidad(es)`;
+      });
+      return `Sistema ${sistema.nombre}:${materiales.length ? `\n${materiales.join('\n')}` : '\nNo tiene materiales registrados.'}`;
+    }
+
     if (/(orden|produccion|despiece|taller)/.test(t)) {
       return (
         'Abre “Órdenes y Medidas”, verifica dirección y proyectos con medidas, y usa “Enviar a ' +
@@ -152,7 +204,7 @@ Deno.serve(async (req: Request) => {
   if (!apiKey) {
     return new Response(
       JSON.stringify({
-        respuesta: respuestaLocal(ultimo, modo),
+        respuesta: respuestaLocal(ultimo, modo, payload.contexto || {}),
         origen: 'local',
         aviso: 'Configura AI_API_KEY en Supabase Edge Functions para activar la IA.',
       }),
@@ -194,7 +246,7 @@ Deno.serve(async (req: Request) => {
       console.error('Error del proveedor de IA:', respuesta.status, detalle);
       return new Response(
         JSON.stringify({
-          respuesta: respuestaLocal(ultimo, modo),
+          respuesta: respuestaLocal(ultimo, modo, payload.contexto || {}),
           origen: 'local',
           aviso: 'El proveedor de IA no respondió. Se usó la guía local.',
         }),
@@ -207,7 +259,7 @@ Deno.serve(async (req: Request) => {
 
     return new Response(
       JSON.stringify({
-        respuesta: texto?.trim() || respuestaLocal(ultimo, modo),
+        respuesta: texto?.trim() || respuestaLocal(ultimo, modo, payload.contexto || {}),
         origen: texto ? 'ia' : 'local',
       }),
       { headers: { ...CORS, 'Content-Type': 'application/json' } },
@@ -216,7 +268,7 @@ Deno.serve(async (req: Request) => {
     console.error('Fallo al consultar la IA:', err);
     return new Response(
       JSON.stringify({
-        respuesta: respuestaLocal(ultimo, modo),
+        respuesta: respuestaLocal(ultimo, modo, payload.contexto || {}),
         origen: 'local',
         aviso: 'No se pudo contactar al proveedor de IA.',
       }),

@@ -276,6 +276,13 @@ export function permisosDe(rol) {
     esBodega,
     // Gestión de personal, salarios y borrado de registros
     puedeAdministrar: esAdmin,
+    // Acceso a órdenes: administración, jefatura, producción e instalación
+    puedeVerOrdenes: esAdmin || esJefe || esProduccion || esInstalador,
+    // Asignación directa de visitas y aprobación de medición
+    puedeAsignarMediciones: esAdmin || esJefe,
+    puedeGestionarMediciones: esAdmin || esJefe || esInstalador,
+    // Flujo de taller: aceptar, medir vidrios y terminar
+    puedeGestionarProduccion: esAdmin || esJefe || esProduccion,
     // Ver dashboard y métricas globales
     puedeVerDashboard: esAdmin || esJefe,
     // Ver inventario
@@ -310,6 +317,8 @@ export function permisosDe(rol) {
     puedeUsarChecklists: esProduccion || esInstalador || esAdmin || esJefe,
     // Inventario propio de producción
     puedeVerProduccion: esAdmin || esJefe || esProduccion,
+    // Solo administración, jefatura y producción pueden descargar/imprimir la orden de producción
+    puedeDescargarOrdenProduccion: esSuperAdmin || esJefe || esProduccion,
     puedeInventarioProduccion: esAdmin || esJefe || esProduccion || esBodega,
   };
 }
